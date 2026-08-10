@@ -3,9 +3,15 @@
 // ===== 定数 =====
 const MAP_W = 48;
 const MAP_H = 27;
-const TILE = 20;
 const VIEW_RADIUS = 8;
 const FINAL_FLOOR = 13;
+
+// タッチ端末ではプレイヤー周辺だけを大きく表示する(カメラ方式)
+const IS_TOUCH = typeof window !== 'undefined' &&
+  ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+const TILE = IS_TOUCH ? 48 : 20;
+const VIEW_W = IS_TOUCH ? 20 : MAP_W;
+const VIEW_H = IS_TOUCH ? 13 : MAP_H;
 
 const T = { WALL: 0, FLOOR: 1, STAIRS: 2 };
 
@@ -33,6 +39,8 @@ const BOSS_TYPE = { name: '十三階の主', char: '&', color: '#ff4d6d', hp: 66
 let game = null;
 const canvas = document.getElementById('screen');
 const ctx = canvas.getContext('2d');
+canvas.width = VIEW_W * TILE;
+canvas.height = VIEW_H * TILE;
 
 function newGame() {
   game = {
@@ -380,54 +388,70 @@ function refresh() {
 }
 
 // ===== 描画 =====
+function cameraOrigin() {
+  const p = game.player;
+  return {
+    x: clamp(p.x - (VIEW_W >> 1), 0, Math.max(0, MAP_W - VIEW_W)),
+    y: clamp(p.y - (VIEW_H >> 1), 0, Math.max(0, MAP_H - VIEW_H)),
+  };
+}
+
+function inView(cam, x, y) {
+  return x >= cam.x && y >= cam.y && x < cam.x + VIEW_W && y < cam.y + VIEW_H;
+}
+
 function render() {
+  const cam = cameraOrigin();
+  const cx = (x) => (x - cam.x) * TILE + TILE / 2;
+  const cy = (y) => (y - cam.y) * TILE + TILE / 2;
+
   ctx.fillStyle = '#05060a';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.font = '16px "Courier New", monospace';
+  ctx.font = `${Math.floor(TILE * 0.8)}px "Courier New", monospace`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  for (let y = 0; y < MAP_H; y++) {
-    for (let x = 0; x < MAP_W; x++) {
+  for (let y = cam.y; y < Math.min(MAP_H, cam.y + VIEW_H); y++) {
+    for (let x = cam.x; x < Math.min(MAP_W, cam.x + VIEW_W); x++) {
       if (!game.explored[y][x]) continue;
       const vis = game.visible[y][x];
-      const px = x * TILE + TILE / 2, py = y * TILE + TILE / 2;
       const t = game.map[y][x];
       if (t === T.WALL) {
         ctx.fillStyle = vis ? '#4a4e69' : '#22223b';
-        ctx.fillText('#', px, py);
+        ctx.fillText('#', cx(x), cy(y));
       } else if (t === T.STAIRS) {
         ctx.fillStyle = vis ? '#ffd166' : '#7f6a2c';
-        ctx.fillText('>', px, py);
+        ctx.fillText('>', cx(x), cy(y));
       } else {
         ctx.fillStyle = vis ? '#3a3f58' : '#1d2033';
-        ctx.fillText('·', px, py);
+        ctx.fillText('·', cx(x), cy(y));
       }
     }
   }
 
   for (const it of game.items) {
-    if (!game.visible[it.y][it.x]) continue;
+    if (!game.visible[it.y][it.x] || !inView(cam, it.x, it.y)) continue;
     ctx.fillStyle = it.color;
-    ctx.fillText(it.char, it.x * TILE + TILE / 2, it.y * TILE + TILE / 2);
+    ctx.fillText(it.char, cx(it.x), cy(it.y));
   }
 
+  const barH = Math.max(2, Math.floor(TILE / 10));
   for (const e of game.enemies) {
-    if (!game.visible[e.y][e.x]) continue;
+    if (!game.visible[e.y][e.x] || !inView(cam, e.x, e.y)) continue;
     ctx.fillStyle = e.color;
-    ctx.fillText(e.char, e.x * TILE + TILE / 2, e.y * TILE + TILE / 2);
+    ctx.fillText(e.char, cx(e.x), cy(e.y));
     if (e.hp < e.maxHp) {
-      const bx = e.x * TILE + 3, by = e.y * TILE + 1, bw = TILE - 6;
+      const bx = (e.x - cam.x) * TILE + 3, by = (e.y - cam.y) * TILE + 1, bw = TILE - 6;
       ctx.fillStyle = '#2b2d42';
-      ctx.fillRect(bx, by, bw, 2);
+      ctx.fillRect(bx, by, bw, barH);
       ctx.fillStyle = '#ef476f';
-      ctx.fillRect(bx, by, bw * (e.hp / e.maxHp), 2);
+      ctx.fillRect(bx, by, bw * (e.hp / e.maxHp), barH);
     }
   }
 
   const p = game.player;
   ctx.fillStyle = '#ffb703';
-  ctx.fillText('@', p.x * TILE + TILE / 2, p.y * TILE + TILE / 2);
+  ctx.fillText('@', cx(p.x), cy(p.y));
 
   if (game.over) {
     ctx.fillStyle = 'rgba(5, 6, 10, 0.78)';
@@ -441,7 +465,7 @@ function render() {
     ctx.fillText(
       `到達: 地下${game.floor}階  レベル${game.player.level}  金貨${game.player.gold}枚  ${game.turn}ターン`,
       canvas.width / 2, canvas.height / 2 + 18);
-    ctx.fillText('Rキーでもう一度挑戦', canvas.width / 2, canvas.height / 2 + 48);
+    ctx.fillText(IS_TOUCH ? '画面をタップしてもう一度挑戦' : 'Rキーでもう一度挑戦', canvas.width / 2, canvas.height / 2 + 48);
   }
 }
 
@@ -473,6 +497,15 @@ function log(text, kind) {
 }
 
 // ===== 入力 =====
+function afterAction(acted) {
+  if (acted && !game.over) endTurn();
+  else refresh();
+}
+function inputMove(dx, dy) { if (!game.over) afterAction(playerMove(dx, dy)); }
+function inputWait()       { if (!game.over) afterAction(true); }
+function inputQuaff()      { if (!game.over) afterAction(quaffPotion()); }
+function inputDescend()    { if (!game.over) afterAction(descend()); }
+
 const MOVE_KEYS = {
   ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
   w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0],
@@ -488,22 +521,76 @@ document.addEventListener('keydown', (ev) => {
     return;
   }
 
-  let acted = false;
   if (key in MOVE_KEYS || ev.key in MOVE_KEYS) {
     const [dx, dy] = MOVE_KEYS[key] || MOVE_KEYS[ev.key];
-    acted = playerMove(dx, dy);
     ev.preventDefault();
+    inputMove(dx, dy);
   } else if (key === ' ' || key === '.') {
-    acted = true;
     ev.preventDefault();
+    inputWait();
   } else if (key === 'q') {
-    acted = quaffPotion();
+    inputQuaff();
   } else if (ev.key === '>' || ev.key === 'Enter') {
-    acted = descend();
+    inputDescend();
   }
-
-  if (acted && !game.over) endTurn();
-  else refresh();
 });
+
+// ===== タッチ操作 =====
+function bindButton(id, fn, repeat) {
+  const el = document.getElementById(id);
+  let delayTimer = null, repeatTimer = null;
+  const start = (ev) => {
+    ev.preventDefault();
+    if (game.over) { newGame(); return; }
+    fn();
+    if (repeat) {
+      delayTimer = setTimeout(() => {
+        repeatTimer = setInterval(() => { if (!game.over) fn(); }, 150);
+      }, 350);
+    }
+  };
+  const stop = () => { clearTimeout(delayTimer); clearInterval(repeatTimer); };
+  el.addEventListener('touchstart', start, { passive: false });
+  el.addEventListener('touchend', stop);
+  el.addEventListener('touchcancel', stop);
+}
+
+if (IS_TOUCH) {
+  document.body.classList.add('touch');
+
+  // キャンバス上のスワイプで移動、ゲームオーバー中はタップで再挑戦
+  let touchStart = null;
+  canvas.addEventListener('touchstart', (ev) => {
+    ev.preventDefault();
+    touchStart = ev.changedTouches[0];
+  }, { passive: false });
+  canvas.addEventListener('touchend', (ev) => {
+    ev.preventDefault();
+    if (game.over) { newGame(); return; }
+    if (!touchStart) return;
+    const t = ev.changedTouches[0];
+    const dx = t.clientX - touchStart.clientX;
+    const dy = t.clientY - touchStart.clientY;
+    touchStart = null;
+    if (Math.hypot(dx, dy) < 24) return; // ただのタップは無視
+    if (Math.abs(dx) > Math.abs(dy)) inputMove(Math.sign(dx), 0);
+    else inputMove(0, Math.sign(dy));
+  }, { passive: false });
+
+  bindButton('btn-up',    () => inputMove(0, -1), true);
+  bindButton('btn-down',  () => inputMove(0, 1),  true);
+  bindButton('btn-left',  () => inputMove(-1, 0), true);
+  bindButton('btn-right', () => inputMove(1, 0),  true);
+  bindButton('btn-wait',  inputWait, true);
+  bindButton('btn-quaff', inputQuaff, false);
+  bindButton('btn-descend', inputDescend, false);
+
+  document.getElementById('help').innerHTML =
+    '<b>操作</b><br>' +
+    '移動: スワイプ または 十字ボタン(長押しで連続移動)<br>' +
+    '「・」: その場で待機<br>' +
+    '薬・階段: 下のボタン<br>' +
+    'リスタート: ゲームオーバー時に画面タップ';
+}
 
 newGame();

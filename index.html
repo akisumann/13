@@ -13,7 +13,22 @@
     <p class="sub">地下13階に潜む「十三階の主」を討て</p>
   </header>
   <div id="main">
-    <canvas id="screen" width="960" height="540"></canvas>
+    <div id="stage">
+      <canvas id="screen" width="960" height="540"></canvas>
+      <div id="touch-controls">
+        <div id="dpad">
+          <button id="btn-up" class="pad">▲</button>
+          <button id="btn-left" class="pad">◀</button>
+          <button id="btn-wait" class="pad">・</button>
+          <button id="btn-right" class="pad">▶</button>
+          <button id="btn-down" class="pad">▼</button>
+        </div>
+        <div id="actions">
+          <button id="btn-quaff" class="act">薬を飲む</button>
+          <button id="btn-descend" class="act">階段を降りる</button>
+        </div>
+      </div>
+    </div>
     <aside id="side">
       <div class="stat"><span class="label">階層</span><span id="st-floor">B1</span></div>
       <div class="stat"><span class="label">HP</span><span id="st-hp">20 / 20</span></div>
