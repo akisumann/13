@@ -9,7 +9,7 @@ const STATS = [
   { key: 'hp',  label: 'HP',       base: (r) => 24 + r * 16, max: 280,
     effect: '0になると負ける' },
   { key: 'mp',  label: 'MP',       base: (r) => 10 + r * 8,  max: 150,
-    effect: '魔力よろい。被ダメージを肩代わりする。尽きると底力に切り替わり、こうげきが上がる' },
+    effect: '魔力よろい。尽きるまで被ダメージを肩代わりする。多いほど長く保つ' },
   { key: 'atk', label: 'こうげき', base: (r) => 6 + r * 5,   max: 110,
     effect: '与えるダメージ' },
   { key: 'def', label: 'ぼうぎょ', base: (r) => 5 + r * 4,   max: 110,
@@ -27,8 +27,9 @@ const COMBAT = {
   // すべて「相手との比」で決まる。絶対値のしきい値だとランクによって
   // 効き方が変わってしまい、低ランクでは死に、高ランクでは効きすぎるため。
   spread:       0.10, // ダメージのばらつき(±10%)
-  mpAbsorb:     0.35, // 魔力よろい: 被ダメージのうちMPが肩代わりする割合
-  gritAtk:      1.30, // 底力: MPが尽きたあとのこうげき倍率
+  // 魔力よろい: 被ダメージのうちMPが肩代わりする割合。低いとMPが余ったまま
+  // 戦闘が終わり、一定以上のMPが無意味になるので高めに取る。
+  mpAbsorb:     0.55,
   insightSwing: 0.70, // 見切り: かしこさ比によるダメージ増減の振れ幅
   parryMax:     0.50, // 受け流し: きようさ比 × これ = 発生率(拮抗時はこの半分)
   parryMul:     0.35, // 受け流したときのダメージ倍率
@@ -38,41 +39,69 @@ const COMBAT = {
 };
 
 // 系統補正。同ランクの総当たりで勝率がそろうよう数値探索で調整してある。
-// 「形」(どのステータスが高いか)が系統の個性で、全体の底上げ量だけを動かした。
+// MP補正だけは調整対象から外し、系統ごとの多寡をそのまま残している
+// (MPが低い系統は魔力よろいが薄いという不利を負い、その埋め合わせは
+//  他の6項目の底上げで行う。岩は他6項目が平均 +0.05 ぶん高い)。
 const FAMILIES = {
   fire:  { name: '炎', glyph: '炎', color: '#ff6b4a',   // 一撃が重いが打たれ弱い
            mod: { hp: 0.96, mp: 1.06, atk: 1.21, def: 0.91, int: 1.11, spd: 1.01, dex: 0.96 } },
   water: { name: '水', glyph: '水', color: '#4aa8ff',   // 魔力よろいが厚く粘る
-           mod: { hp: 1.15, mp: 1.25, atk: 1.00, def: 1.05, int: 1.15, spd: 0.95, dex: 1.05 } },
+           mod: { hp: 1.17, mp: 1.25, atk: 1.02, def: 1.07, int: 1.17, spd: 0.97, dex: 1.07 } },
   grass: { name: '草', glyph: '草', color: '#5fd07a',   // 守りとMPで長期戦向き
-           mod: { hp: 1.10, mp: 1.20, atk: 0.95, def: 1.27, int: 1.10, spd: 1.05, dex: 1.05 } },
-  rock:  { name: '岩', glyph: '岩', color: '#d0a24a',   // MPが薄いぶん早く底力に入る
-           mod: { hp: 1.26, mp: 0.81, atk: 1.11, def: 1.21, int: 0.86, spd: 0.81, dex: 0.91 } },
+           mod: { hp: 1.13, mp: 1.20, atk: 0.98, def: 1.30, int: 1.13, spd: 1.08, dex: 1.08 } },
+  // 岩はMPが薄い(0.81)。魔力よろいが短いという不利を負うぶん、
+  // 他の6項目が他系統より一段高く積んである。
+  rock:  { name: '岩', glyph: '岩', color: '#d0a24a',
+           mod: { hp: 1.38, mp: 0.81, atk: 1.23, def: 1.33, int: 0.98, spd: 0.93, dex: 1.03 } },
   wind:  { name: '風', glyph: '風', color: '#7ee0d0',   // 追撃と受け流しで手数勝負
-           mod: { hp: 0.95, mp: 1.05, atk: 1.05, def: 0.95, int: 1.05, spd: 1.40, dex: 1.30 } },
+           mod: { hp: 0.98, mp: 1.05, atk: 1.08, def: 0.98, int: 1.08, spd: 1.43, dex: 1.33 } },
   dark:  { name: '闇', glyph: '闇', color: '#a76bff',   // 見切りで一方的に削る
-           mod: { hp: 0.96, mp: 1.16, atk: 1.11, def: 0.96, int: 1.21, spd: 1.06, dex: 1.01 } },
-  // 最終形態。全ステータスが成長係数A。1.11以上にすると全部Sになり手がつけられなくなる。
+           mod: { hp: 0.92, mp: 1.16, atk: 1.07, def: 0.92, int: 1.17, spd: 1.02, dex: 0.97 } },
+  // 最終形態。素の補正は控えめだが、唯一すべての成長係数がSなので育てるほど突き放す。
   light: { name: '光', glyph: '光', color: '#ffd95c',
-           mod: { hp: 1.10, mp: 1.10, atk: 1.10, def: 1.10, int: 1.10, spd: 1.10, dex: 1.10 } },
+           mod: { hp: 0.91, mp: 0.91, atk: 0.91, def: 0.91, int: 0.91, spd: 0.91, dex: 0.91 } },
 };
 
 const BASE_FAMILIES = ['fire', 'water', 'grass', 'rock', 'wind'];
 
+// 4つめの文字列が成長係数(hp mp atk def int spd dex の順)。
+// 系統の得意不得意とランクから起こした値を、種族値としてそのまま持たせている。
+// 導出式のままにすると系統補正を少し触っただけでグレードが飛び、
+// バランス調整が階段状になってしまうため、ここで確定させておく。
 const SPECIES = [
-  ['fire',  1, 'ヒノコ'],     ['fire',  2, 'ボウフレア'], ['fire',  3, 'サラマンド'],
-  ['fire',  4, 'イフリード'], ['fire',  5, 'ヴォルケイン'],
-  ['water', 1, 'シズク'],     ['water', 2, 'アクアム'],   ['water', 3, 'リヴァイト'],
-  ['water', 4, 'セイレーヌ'], ['water', 5, 'ポセイドス'],
-  ['grass', 1, 'フタバ'],     ['grass', 2, 'ツタリング'], ['grass', 3, 'ドリアード'],
-  ['grass', 4, 'ユグドラ'],   ['grass', 5, 'ガイアルド'],
-  ['rock',  1, 'コイシ'],     ['rock',  2, 'ロックル'],   ['rock',  3, 'ゴーレット'],
-  ['rock',  4, 'グラナイト'], ['rock',  5, 'アダマス'],
-  ['wind',  1, 'ソヨカ'],     ['wind',  2, 'ウィンディ'], ['wind',  3, 'シルフィード'],
-  ['wind',  4, 'テンペスト'], ['wind',  5, 'ガルーダ'],
-  ['dark',  3, 'シャドウル'], ['dark',  4, 'ノクターン'], ['dark',  5, 'ニュクス'],
-  ['light', 5, 'ルクスノヴァ'],
-].map(([family, rank, name]) => ({ id: family + rank, family, rank, name }));
+  ['fire',  1, 'ヒノコ',       'EECFDEE'],
+  ['fire',  2, 'ボウフレア',   'DDBECDD'],
+  ['fire',  3, 'サラマンド',   'CCADBCC'],
+  ['fire',  4, 'イフリード',   'CBACABC'],
+  ['fire',  5, 'ヴォルケイン', 'AASBSAA'],
+  ['water', 1, 'シズク',       'DCEEDEE'],
+  ['water', 2, 'アクアム',     'CBDDCDD'],
+  ['water', 3, 'リヴァイト',   'BACCBCC'],
+  ['water', 4, 'セイレーヌ',   'ASBBACB'],
+  ['water', 5, 'ポセイドス',   'SSAASAA'],
+  ['grass', 1, 'フタバ',       'DDECDEE'],
+  ['grass', 2, 'ツタリング',   'CCEBCDD'],
+  ['grass', 3, 'ドリアード',   'BBDABCC'],
+  ['grass', 4, 'ユグドラ',     'AACSABB'],
+  ['grass', 5, 'ガイアルド',   'SSBSSAA'],
+  ['rock',  1, 'コイシ',       'CFDCFFE'],
+  ['rock',  2, 'ロックル',     'BFCBEEE'],
+  ['rock',  3, 'ゴーレット',   'AEBADDD'],
+  ['rock',  4, 'グラナイト',   'SDASCCC'],
+  ['rock',  5, 'アダマス',     'SCSSBBB'],
+  ['wind',  1, 'ソヨカ',       'EEEEEBC'],
+  ['wind',  2, 'ウィンディ',   'EDDEDAB'],
+  ['wind',  3, 'シルフィード', 'DCCDCSA'],
+  ['wind',  4, 'テンペスト',   'CBBCBSS'],
+  ['wind',  5, 'ガルーダ',     'BAABASS'],
+  ['dark',  3, 'シャドウル',   'CBBCACC'],
+  ['dark',  4, 'ノクターン',   'CAACABB'],
+  ['dark',  5, 'ニュクス',     'ASSASAA'],
+  ['light', 5, 'ルクスノヴァ', 'SSSSSSS'], // 唯一、全ステータスが最高位S
+].map(([family, rank, name, grades]) => ({
+  id: family + rank, family, rank, name,
+  growth: STATS.reduce((o, st, i) => (o[st.key] = grades[i], o), {}),
+}));
 
 // =====================================================================
 // 成長係数(種族値)
@@ -85,28 +114,6 @@ const GRADES = ['F', 'E', 'D', 'C', 'B', 'A', 'S'];
 
 // 1レベルあたりの伸びの倍率
 const GRADE_MUL = { F: 0.45, E: 0.65, D: 0.85, C: 1.05, B: 1.3, A: 1.6, S: 1.95 };
-
-// ランクが低いほど全体的に下へずらす
-const RANK_SHIFT = { 1: -0.24, 2: -0.12, 3: 0, 4: 0.12, 5: 0.24 };
-
-// 各しきい値「未満」なら F,E,D,C,B,A。すべて超えたら S。
-const GRADE_CUTS = [0.72, 0.85, 0.97, 1.09, 1.21, 1.35];
-
-function gradeFor(family, rank, statKey) {
-  const score = FAMILIES[family].mod[statKey] + RANK_SHIFT[rank];
-  let i = 0;
-  while (i < GRADE_CUTS.length && score >= GRADE_CUTS[i]) i++;
-  return GRADES[i];
-}
-
-// 系統補正を変えたら呼び直す(成長係数は補正から導いているため)
-function applyGrowthGrades() {
-  for (const sp of SPECIES) {
-    sp.growth = {};
-    for (const st of STATS) sp.growth[st.key] = gradeFor(sp.family, sp.rank, st.key);
-  }
-}
-applyGrowthGrades();
 
 // 異系統どうしの配合表(闇・光は特殊ルールで処理する)
 const FUSION_TABLE = {
@@ -283,9 +290,8 @@ function previewFusion(a, b) {
 
 // 1回の攻撃。7ステータスすべてが常時効果として噛み合う。
 function strike(atk, dfn, log) {
-  // 底力: 自分のMPが尽きているあいだ、こうげきが上がる
-  const power = atk.mp <= 0 ? atk.atk * COMBAT.gritAtk : atk.atk;
   // ぼうぎょ: こうげきとの比で軽減する(逓減するので硬さが無敵にならない)
+  const power = atk.atk;
   let dmg = power * power / (power + dfn.def);
   dmg *= 1 + ri(-100, 100) / 100 * COMBAT.spread;
 
@@ -312,13 +318,13 @@ function strike(atk, dfn, log) {
   let note = '';
   if (parried) note += ' [受け流し]';
   if (absorbed > 0) note += ` [MPが${absorbed}肩代わり]`;
-  if (atk.mp <= 0 && !atk.gritNoted) { note += ' [底力]'; atk.gritNoted = true; }
+  else if (dfn.mp <= 0) note += ' [MP切れ]';
   log.push(`${atk.name} の攻撃 → ${dmg} ダメージ${note}(${dfn.name} 残り ${Math.max(0, dfn.hp)})`);
 }
 
 function battle(a, b) {
-  const A = { name: spOf(a).name, ...statsOf(a), gritNoted: false };
-  const B = { name: spOf(b).name, ...statsOf(b), gritNoted: false };
+  const A = { name: spOf(a).name, ...statsOf(a) };
+  const B = { name: spOf(b).name, ...statsOf(b) };
   const maxA = A.hp, maxB = B.hp;
   const log = [];
   let first = A.spd >= B.spd;
