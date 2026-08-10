@@ -305,8 +305,18 @@ button:focus-visible, .mon:focus-visible {
   font-size: 12px;
 }
 .stat-row .k { color: var(--muted); letter-spacing: 0.08em; white-space: nowrap; }
-/* まだ戦闘に効かないステータスは控えめに見せる */
-.stat-row.is-idle { opacity: 0.5; }
+
+/* ステータスのはたらき一覧(図鑑) */
+.effects { display: flex; flex-direction: column; gap: 9px; }
+.effect-row {
+  display: grid;
+  grid-template-columns: 4.8em 1fr;
+  gap: 10px;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.effect-row .ek { color: var(--accent); font-weight: 700; white-space: nowrap; }
+.effect-row .ev { color: var(--muted); }
 .stat-row .v {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;

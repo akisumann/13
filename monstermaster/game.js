@@ -4,36 +4,57 @@
 // データ
 // =====================================================================
 
-// ステータスは7種。現時点で戦闘に効くのは hp / atk / def / spd で、
-// mp・int・dex は表示と系統の個性づけのみ(魔法や命中を入れるときに使う)。
+// ステータスは7種。すべて常時効果として戦闘に効く(コマンド選択や詠唱は無い)。
 const STATS = [
-  { key: 'hp',  label: 'HP',       base: (r) => 24 + r * 16, max: 280 },
-  { key: 'mp',  label: 'MP',       base: (r) => 10 + r * 8,  max: 150 },
-  { key: 'atk', label: 'こうげき', base: (r) => 6 + r * 5,   max: 110 },
-  { key: 'def', label: 'ぼうぎょ', base: (r) => 5 + r * 4,   max: 110 },
-  { key: 'int', label: 'かしこさ', base: (r) => 5 + r * 4,   max: 110 },
-  { key: 'spd', label: 'すばやさ', base: (r) => 6 + r * 4,   max: 110 },
-  { key: 'dex', label: 'きようさ', base: (r) => 5 + r * 4,   max: 110 },
+  { key: 'hp',  label: 'HP',       base: (r) => 24 + r * 16, max: 280,
+    effect: '0になると負ける' },
+  { key: 'mp',  label: 'MP',       base: (r) => 10 + r * 8,  max: 150,
+    effect: '魔力よろい。被ダメージを肩代わりする。尽きると底力に切り替わり、こうげきが上がる' },
+  { key: 'atk', label: 'こうげき', base: (r) => 6 + r * 5,   max: 110,
+    effect: '与えるダメージ' },
+  { key: 'def', label: 'ぼうぎょ', base: (r) => 5 + r * 4,   max: 110,
+    effect: '受けるダメージを減らす' },
+  { key: 'int', label: 'かしこさ', base: (r) => 5 + r * 4,   max: 110,
+    effect: '見切り。相手との差だけ与ダメージが増え、被ダメージが減る' },
+  { key: 'spd', label: 'すばやさ', base: (r) => 6 + r * 4,   max: 110,
+    effect: '高いほうが先に動く' },
+  { key: 'dex', label: 'きようさ', base: (r) => 5 + r * 4,   max: 110,
+    effect: '受け流し。一定確率で受けるダメージを大きく減らす' },
 ];
 
-// 戦闘で実際に参照しているステータス(それ以外は今のところ死にステータス)
-const LIVE_STATS = ['hp', 'atk', 'def', 'spd'];
+// ---- 常時効果のつまみ ----
+const COMBAT = {
+  // すべて「相手との比」で決まる。絶対値のしきい値だとランクによって
+  // 効き方が変わってしまい、低ランクでは死に、高ランクでは効きすぎるため。
+  spread:       0.10, // ダメージのばらつき(±10%)
+  mpAbsorb:     0.35, // 魔力よろい: 被ダメージのうちMPが肩代わりする割合
+  gritAtk:      1.30, // 底力: MPが尽きたあとのこうげき倍率
+  insightSwing: 0.70, // 見切り: かしこさ比によるダメージ増減の振れ幅
+  parryMax:     0.50, // 受け流し: きようさ比 × これ = 発生率(拮抗時はこの半分)
+  parryMul:     0.35, // 受け流したときのダメージ倍率
+  spdSwing:     1.50, // 追撃: すばやさ比による追加行動の起きやすさ
+  spdExtraMax:  0.45,
+  turnCap:      200,
+};
 
+// 系統補正。同ランクの総当たりで勝率がそろうよう数値探索で調整してある。
+// 「形」(どのステータスが高いか)が系統の個性で、全体の底上げ量だけを動かした。
 const FAMILIES = {
-  fire:  { name: '炎', glyph: '炎', color: '#ff6b4a',
-           mod: { hp: 0.95, mp: 1.05, atk: 1.20, def: 0.90, int: 1.10, spd: 1.00, dex: 0.95 } },
-  water: { name: '水', glyph: '水', color: '#4aa8ff',
+  fire:  { name: '炎', glyph: '炎', color: '#ff6b4a',   // 一撃が重いが打たれ弱い
+           mod: { hp: 0.96, mp: 1.06, atk: 1.21, def: 0.91, int: 1.11, spd: 1.01, dex: 0.96 } },
+  water: { name: '水', glyph: '水', color: '#4aa8ff',   // 魔力よろいが厚く粘る
            mod: { hp: 1.15, mp: 1.25, atk: 1.00, def: 1.05, int: 1.15, spd: 0.95, dex: 1.05 } },
-  grass: { name: '草', glyph: '草', color: '#5fd07a',
-           mod: { hp: 1.05, mp: 1.15, atk: 0.90, def: 1.20, int: 1.05, spd: 1.00, dex: 1.00 } },
-  rock:  { name: '岩', glyph: '岩', color: '#d0a24a',
-           mod: { hp: 1.20, mp: 0.75, atk: 1.05, def: 1.15, int: 0.80, spd: 0.75, dex: 0.85 } },
-  wind:  { name: '風', glyph: '風', color: '#7ee0d0',
-           mod: { hp: 0.90, mp: 1.00, atk: 1.00, def: 0.90, int: 1.00, spd: 1.35, dex: 1.25 } },
-  dark:  { name: '闇', glyph: '闇', color: '#a76bff',
-           mod: { hp: 1.00, mp: 1.20, atk: 1.15, def: 1.00, int: 1.25, spd: 1.10, dex: 1.05 } },
+  grass: { name: '草', glyph: '草', color: '#5fd07a',   // 守りとMPで長期戦向き
+           mod: { hp: 1.10, mp: 1.20, atk: 0.95, def: 1.27, int: 1.10, spd: 1.05, dex: 1.05 } },
+  rock:  { name: '岩', glyph: '岩', color: '#d0a24a',   // MPが薄いぶん早く底力に入る
+           mod: { hp: 1.26, mp: 0.81, atk: 1.11, def: 1.21, int: 0.86, spd: 0.81, dex: 0.91 } },
+  wind:  { name: '風', glyph: '風', color: '#7ee0d0',   // 追撃と受け流しで手数勝負
+           mod: { hp: 0.95, mp: 1.05, atk: 1.05, def: 0.95, int: 1.05, spd: 1.40, dex: 1.30 } },
+  dark:  { name: '闇', glyph: '闇', color: '#a76bff',   // 見切りで一方的に削る
+           mod: { hp: 0.96, mp: 1.16, atk: 1.11, def: 0.96, int: 1.21, spd: 1.06, dex: 1.01 } },
+  // 最終形態。全ステータスが成長係数A。1.11以上にすると全部Sになり手がつけられなくなる。
   light: { name: '光', glyph: '光', color: '#ffd95c',
-           mod: { hp: 1.10, mp: 1.15, atk: 1.10, def: 1.10, int: 1.15, spd: 1.10, dex: 1.10 } },
+           mod: { hp: 1.10, mp: 1.10, atk: 1.10, def: 1.10, int: 1.10, spd: 1.10, dex: 1.10 } },
 };
 
 const BASE_FAMILIES = ['fire', 'water', 'grass', 'rock', 'wind'];
@@ -78,10 +99,14 @@ function gradeFor(family, rank, statKey) {
   return GRADES[i];
 }
 
-for (const sp of SPECIES) {
-  sp.growth = {};
-  for (const st of STATS) sp.growth[st.key] = gradeFor(sp.family, sp.rank, st.key);
+// 系統補正を変えたら呼び直す(成長係数は補正から導いているため)
+function applyGrowthGrades() {
+  for (const sp of SPECIES) {
+    sp.growth = {};
+    for (const st of STATS) sp.growth[st.key] = gradeFor(sp.family, sp.rank, st.key);
+  }
 }
+applyGrowthGrades();
 
 // 異系統どうしの配合表(闇・光は特殊ルールで処理する)
 const FUSION_TABLE = {
@@ -256,18 +281,62 @@ function previewFusion(a, b) {
 // 戦闘・探索
 // =====================================================================
 
+// 1回の攻撃。7ステータスすべてが常時効果として噛み合う。
+function strike(atk, dfn, log) {
+  // 底力: 自分のMPが尽きているあいだ、こうげきが上がる
+  const power = atk.mp <= 0 ? atk.atk * COMBAT.gritAtk : atk.atk;
+  // ぼうぎょ: こうげきとの比で軽減する(逓減するので硬さが無敵にならない)
+  let dmg = power * power / (power + dfn.def);
+  dmg *= 1 + ri(-100, 100) / 100 * COMBAT.spread;
+
+  // 見切り: かしこさの比で通り方が変わる
+  const intTotal = atk.int + dfn.int;
+  dmg *= 1 + (intTotal ? (atk.int - dfn.int) / intTotal : 0) * COMBAT.insightSwing;
+  dmg = Math.max(1, Math.round(dmg));
+
+  // 受け流し: きようさの比に応じた確率で大きく軽減
+  const dexTotal = atk.dex + dfn.dex;
+  const parried = Math.random() < COMBAT.parryMax * (dexTotal ? dfn.dex / dexTotal : 0.5);
+  if (parried) dmg = Math.max(1, Math.round(dmg * COMBAT.parryMul));
+
+  // 魔力よろい: MPが残っていれば一部を肩代わりする
+  let absorbed = 0;
+  if (dfn.mp > 0) {
+    absorbed = Math.min(dfn.mp, Math.round(dmg * COMBAT.mpAbsorb));
+    dfn.mp -= absorbed;
+    dmg -= absorbed;
+  }
+
+  dfn.hp -= dmg;
+
+  let note = '';
+  if (parried) note += ' [受け流し]';
+  if (absorbed > 0) note += ` [MPが${absorbed}肩代わり]`;
+  if (atk.mp <= 0 && !atk.gritNoted) { note += ' [底力]'; atk.gritNoted = true; }
+  log.push(`${atk.name} の攻撃 → ${dmg} ダメージ${note}(${dfn.name} 残り ${Math.max(0, dfn.hp)})`);
+}
+
 function battle(a, b) {
-  const A = { name: spOf(a).name, ...statsOf(a) };
-  const B = { name: spOf(b).name, ...statsOf(b) };
+  const A = { name: spOf(a).name, ...statsOf(a), gritNoted: false };
+  const B = { name: spOf(b).name, ...statsOf(b), gritNoted: false };
+  const maxA = A.hp, maxB = B.hp;
   const log = [];
   let first = A.spd >= B.spd;
 
-  for (let turn = 0; turn < 60 && A.hp > 0 && B.hp > 0; turn++) {
+  for (let turn = 0; turn < COMBAT.turnCap && A.hp > 0 && B.hp > 0; turn++) {
     const atk = first ? A : B, dfn = first ? B : A;
-    const dmg = Math.max(1, atk.atk - Math.floor(dfn.def / 2) + ri(-2, 2));
-    dfn.hp -= dmg;
-    log.push(`${atk.name} の攻撃 → ${dmg} ダメージ(${dfn.name} 残り ${Math.max(0, dfn.hp)})`);
+    strike(atk, dfn, log);
+    // 追撃: すばやさが相手を上回っているほど、続けてもう一撃が出やすい
+    const spdTotal = atk.spd + dfn.spd;
+    const extra = clamp((atk.spd - dfn.spd) / (spdTotal || 1) * COMBAT.spdSwing,
+      0, COMBAT.spdExtraMax);
+    if (dfn.hp > 0 && Math.random() < extra) strike(atk, dfn, log);
     first = !first;
+  }
+  // 決着がつかなかった場合は、HPの残り割合が多いほうの勝ち
+  if (A.hp > 0 && B.hp > 0) {
+    log.push('決着がつかず、消耗の少ないほうの判定勝ち');
+    return { win: A.hp / maxA >= B.hp / maxB, log };
   }
   return { win: B.hp <= 0 && A.hp > 0, log };
 }
@@ -520,9 +589,8 @@ function statBlock(m) {
   const wrap = el('div', 'stats');
   for (const st of STATS) {
     const v = s[st.key];
-    const live = LIVE_STATS.includes(st.key);
     const g = spOf(m).growth[st.key];
-    const r = el('div', 'stat-row' + (live ? '' : ' is-idle'));
+    const r = el('div', 'stat-row');
     r.appendChild(el('span', 'k', st.label));
     r.appendChild(el('span', 'v', String(v)));
     r.appendChild(el('span', 'g g-' + g, g));
@@ -592,8 +660,7 @@ function viewRanch(view) {
         ? `Lv.${m.level}(上限)。これ以上は配合で上のランクへ。`
         : `Lv.${m.level} ・ 次のレベルまで ${expToNext(m) - m.exp} exp ・ 上限 Lv.${cap}`));
     d.appendChild(el('p', 'hint',
-      '右のF〜Sは成長係数。レベルアップでの伸びやすさを表す種ごとの固定値で、遺伝や育て方では変わらない。' +
-      `うすい行(${STATS.filter(st => !LIVE_STATS.includes(st.key)).map(st => st.label).join('・')})は、まだ戦闘に影響しない。`));
+      '右のF〜Sは成長係数。レベルアップでの伸びやすさを表す種ごとの固定値で、遺伝や育て方では変わらない。'));
     if (S.monsters.length > 1) {
       const rel = el('button', 'btn ghost', 'にがす');
       rel.addEventListener('click', (ev) => {
@@ -835,6 +902,21 @@ function viewDex(view) {
 
   view.appendChild(el('p', 'hint',
     '闇の系統は、ランク3以上どうしの異なる系統を配合したときにまれに現れる。'));
+
+  // ステータスのはたらき(すべて常時効果。呪文の詠唱や消費はしない)
+  const legend = el('div', 'panel');
+  legend.appendChild(el('h2', null, 'ステータスのはたらき'));
+  const ul = el('div', 'effects');
+  for (const st of STATS) {
+    const row = el('div', 'effect-row');
+    row.appendChild(el('span', 'ek', st.label));
+    row.appendChild(el('span', 'ev', st.effect));
+    ul.appendChild(row);
+  }
+  legend.appendChild(ul);
+  legend.appendChild(el('p', 'hint',
+    'すべて常時発動。相手との比で効くので、どのランクでも同じように働く。'));
+  view.appendChild(legend);
 }
 
 // --------------------------------------------- 描画
