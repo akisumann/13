@@ -260,6 +260,7 @@ let S = null;
 let UI = {
   tab: 'ranch', picks: [], area: 1, sortie: null, result: null, open: null,
   born: null, bornNew: false, // 直前に配合で生まれた子(配合タブに留まったまま結果を見せる)
+  order: null,                // 表示順(uidの配列)。null なら次の描画で強さ順に並べ直す
 };
 
 function newState() {
@@ -372,9 +373,26 @@ function emblem(m, size) {
   return n;
 }
 
-// 一覧は必ず取得順で並べる。強さ順にすると育成やレベルアップで行が入れ替わり、
-// 連打しているときに指の下でボタンがずれて誤タップの原因になる。
-function roster() { return S.monsters.slice().sort((a, b) => a.uid - b.uid); }
+// 一覧は強さ順。ただし毎回並べ替えると、探索を連打している最中に
+// レベルアップや捕獲で順位が入れ替わり、指の下で行がずれて誤タップになる。
+// そのため並べ替えは節目(タブ切替・配合・購入・にがす)でだけ行い、
+// 探索中は順序を保ったまま、新しい仲間を末尾に足していく。
+function resort() { UI.order = null; }
+
+function roster() {
+  const byUid = new Map(S.monsters.map(m => [m.uid, m]));
+  if (!UI.order) {
+    UI.order = S.monsters.slice()
+      .sort((a, b) => (powerOf(b) - powerOf(a)) || (a.uid - b.uid))
+      .map(m => m.uid);
+  } else {
+    const kept = UI.order.filter(u => byUid.has(u));
+    const seen = new Set(kept);
+    for (const m of S.monsters) if (!seen.has(m.uid)) kept.push(m.uid);
+    UI.order = kept;
+  }
+  return UI.order.map(u => byUid.get(u));
+}
 
 // 連打する主要ボタンを画面下の固定バーへ置く
 function setAction(node) {
@@ -467,6 +485,7 @@ function viewRanch(view) {
     const r = doBuyEgg();
     if (!r) return;
     toast(`${spOf(r.monster).name} がかえった!${r.isNew ? '(図鑑に登録)' : ''}`);
+    resort();
     save(); render();
   });
   shop.appendChild(buy);
@@ -500,6 +519,7 @@ function viewRanch(view) {
           toast(`${spOf(m).name} をにがした`);
           UI.open = null;
           UI.picks = UI.picks.filter(u => u !== m.uid);
+          resort();
           save(); render();
         }
       });
@@ -600,6 +620,7 @@ function viewFuse(view) {
     UI.picks = [];
     UI.born = r.child.uid;
     UI.bornNew = r.isNew;
+    resort(); // 親2匹が消えてどのみち並びが変わるので、ここで並べ直す
     toast(`${spOf(r.child).name} が生まれた!${r.isNew ? ' — 新種発見' : ''}`);
     save();
     render(); // 配合タブに留まる。続けて配合できるようにするため。
@@ -755,6 +776,7 @@ function init() {
     t.addEventListener('click', () => {
       UI.tab = t.dataset.tab;
       UI.result = null;
+      resort(); // タブを移るタイミングで強さ順に並べ直す
       render();
       document.getElementById('view').scrollIntoView({ block: 'start' });
     });
