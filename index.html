@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ダンジョン13 — 地下十三階の主</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="wrap">
+  <header>
+    <h1>ダンジョン13</h1>
+    <p class="sub">地下13階に潜む「十三階の主」を討て</p>
+  </header>
+  <div id="main">
+    <canvas id="screen" width="960" height="540"></canvas>
+    <aside id="side">
+      <div class="stat"><span class="label">階層</span><span id="st-floor">B1</span></div>
+      <div class="stat"><span class="label">HP</span><span id="st-hp">20 / 20</span></div>
+      <div id="hpbar"><div id="hpbar-fill"></div></div>
+      <div class="stat"><span class="label">レベル</span><span id="st-level">1</span></div>
+      <div class="stat"><span class="label">経験値</span><span id="st-xp">0 / 12</span></div>
+      <div class="stat"><span class="label">攻撃</span><span id="st-atk">3</span></div>
+      <div class="stat"><span class="label">防御</span><span id="st-def">0</span></div>
+      <div class="stat"><span class="label">薬</span><span id="st-potions">1</span></div>
+      <div class="stat"><span class="label">金貨</span><span id="st-gold">0</span></div>
+      <hr>
+      <div id="help">
+        <b>操作</b><br>
+        移動: 矢印 / WASD / hjkl<br>
+        待機: Space または .<br>
+        薬を飲む: Q<br>
+        階段を降りる: &gt; または Enter<br>
+        リスタート: R(ゲームオーバー時)
+      </div>
+    </aside>
+  </div>
+  <div id="log"></div>
+</div>
+<script src="game.js"></script>
+</body>
+</html>
