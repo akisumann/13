@@ -41,25 +41,25 @@ const COMBAT = {
 // 系統補正。同ランクの総当たりで勝率がそろうよう数値探索で調整してある。
 // MP補正だけは調整対象から外し、系統ごとの多寡をそのまま残している
 // (MPが低い系統は魔力よろいが薄いという不利を負い、その埋め合わせは
-//  他の6項目の底上げで行う。岩は他6項目の平均が 1.158 と最も高い)。
+//  他の6項目の底上げで行う。岩は他6項目の平均が 1.171 と最も高い)。
 const FAMILIES = {
   fire:  { name: '炎', glyph: '炎', color: '#ff6b4a',   // 一撃が重いが打たれ弱い
-           mod: { hp: 0.97, mp: 1.06, atk: 1.22, def: 0.92, int: 1.12, spd: 1.02, dex: 0.97 } },
+           mod: { hp: 1.00, mp: 1.06, atk: 1.25, def: 0.95, int: 1.15, spd: 1.05, dex: 1.00 } },
   water: { name: '水', glyph: '水', color: '#4aa8ff',   // 魔力よろいが厚く粘る
-           mod: { hp: 1.19, mp: 1.25, atk: 1.04, def: 1.09, int: 1.19, spd: 0.99, dex: 1.09 } },
+           mod: { hp: 1.21, mp: 1.25, atk: 1.06, def: 1.11, int: 1.21, spd: 1.01, dex: 1.11 } },
   grass: { name: '草', glyph: '草', color: '#5fd07a',   // 守りとMPで長期戦向き
-           mod: { hp: 1.15, mp: 1.20, atk: 1.00, def: 1.32, int: 1.15, spd: 1.10, dex: 1.10 } },
+           mod: { hp: 1.18, mp: 1.20, atk: 1.03, def: 1.35, int: 1.18, spd: 1.13, dex: 1.13 } },
   // 岩はMPが薄い(0.81)。魔力よろいが短いという不利を負うぶん、
   // 他の6項目が他系統より一段高く積んである。
   rock:  { name: '岩', glyph: '岩', color: '#d0a24a',
-           mod: { hp: 1.39, mp: 0.81, atk: 1.24, def: 1.34, int: 0.99, spd: 0.94, dex: 1.04 } },
+           mod: { hp: 1.40, mp: 0.81, atk: 1.25, def: 1.35, int: 1.00, spd: 0.95, dex: 1.05 } },
   wind:  { name: '風', glyph: '風', color: '#7ee0d0',   // 追撃と受け流しで手数勝負
-           mod: { hp: 1.02, mp: 1.05, atk: 1.12, def: 1.02, int: 1.12, spd: 1.47, dex: 1.37 } },
+           mod: { hp: 1.06, mp: 1.05, atk: 1.16, def: 1.06, int: 1.16, spd: 1.51, dex: 1.41 } },
   dark:  { name: '闇', glyph: '闇', color: '#a76bff',   // 見切りで一方的に削る
-           mod: { hp: 0.93, mp: 1.16, atk: 1.08, def: 0.93, int: 1.18, spd: 1.03, dex: 0.98 } },
+           mod: { hp: 0.97, mp: 1.16, atk: 1.12, def: 0.97, int: 1.22, spd: 1.07, dex: 1.02 } },
   // 最終形態。素の補正は控えめだが、唯一すべての成長係数がSなので育てるほど突き放す。
   light: { name: '光', glyph: '光', color: '#ffd95c',
-           mod: { hp: 0.94, mp: 0.91, atk: 0.94, def: 0.94, int: 0.94, spd: 0.94, dex: 0.94 } },
+           mod: { hp: 0.98, mp: 0.91, atk: 0.98, def: 0.98, int: 0.98, spd: 0.98, dex: 0.98 } },
 };
 
 const BASE_FAMILIES = ['fire', 'water', 'grass', 'rock', 'wind'];
@@ -78,19 +78,24 @@ const SKILLS = {
   // 伸び幅がまちまちなのは、ダメージ式の中での効き方が違うため
   // (こうげきは二乗で効くので小さく、ぼうぎょは逓減するので大きく取る)。
   gouwan:  { name: '剛腕',   stat: 'atk', per: 0.013 },
-  teppeki: { name: '鉄壁',   stat: 'def', per: 0.043 },
-  idaten:  { name: '韋駄天', stat: 'spd', per: 0.023 },
-  meikyou: { name: '明鏡',   stat: 'int', per: 0.029 },
-  kyoku:   { name: '巨躯',   stat: 'hp',  per: 0.034 },
-  masen:   { name: '魔泉',   stat: 'mp',  per: 0.054 },
+  teppeki: { name: '鉄壁',   stat: 'def', per: 0.045 },
+  idaten:  { name: '韋駄天', stat: 'spd', per: 0.030 },
+  meikyou: { name: '明鏡',   stat: 'int', per: 0.030 },
+  kyoku:   { name: '巨躯',   stat: 'hp',  per: 0.035 },
+  masen:   { name: '魔泉',   stat: 'mp',  per: 0.055 },
 
   // ---- 特殊な振る舞い ----
   kaishin: { name: '会心',   k: 0.026, desc: (lv, k) => `${(lv * k * 100).toFixed(0)}% の確率で1.8倍のダメージ` },
-  hangeki: { name: '反撃',   k: 0.034, desc: (lv, k) => `受け流したとき、こうげきの ${(lv * k * 100).toFixed(0)}% で反撃する` },
-  kyushu:  { name: '吸収',   k: 0.035, desc: (lv, k) => `与えたダメージの ${(lv * k * 100).toFixed(0)}% だけHPが回復する` },
-  dokuga:  { name: '毒牙',   k: 0.037, desc: (lv, k) => `${(lv * k * 100).toFixed(0)}% の確率で毒。毒は毎ターン最大HPの2.5%` },
-  fukutsu: { name: '不屈',   k: 0.080, desc: (lv, k) => `HPが1/4以下のあいだ こうげき +${(lv * k * 100).toFixed(0)}%` },
-  sensei:  { name: '先制',   k: 0.015, desc: (lv, k) => `必ず先に動き、追撃が出やすくなる(+${(lv * k * 100).toFixed(0)}%)` },
+  hangeki: { name: '反撃',   k: 0.032, desc: (lv, k) => `受け流したとき、こうげきの ${(lv * k * 100).toFixed(0)}% で反撃する` },
+  kyushu:  { name: '吸収',   k: 0.036, desc: (lv, k) => `与えたダメージの ${(lv * k * 100).toFixed(0)}% だけHPが回復する` },
+  // 毒は「付与確率」ではなく「毎ターンの削り量」がレベルで伸びる。
+  // 確率側を伸ばすと、長期戦ではどのみち当たるので Lv.5 でほぼ満額になってしまう。
+  dokuga:  { name: '毒牙',   k: 0.004, chance: 0.22,
+             desc: (lv, k) => `22% の確率で毒。毒は毎ターン最大HPの ${(lv * k * 100).toFixed(1)}%` },
+  fukutsu: { name: '不屈',   k: 0.085, desc: (lv, k) => `HPが1/4以下のあいだ こうげき +${(lv * k * 100).toFixed(0)}%` },
+  // 「必ず先に動く」はレベルに関係なく効いてしまうので、確率で奪う形にした。
+  sensei:  { name: '先制',   k: 0.016, grab: 0.09,
+             desc: (lv, k) => `${(lv * 9)}% の確率ですばやさに関わらず先手を取り、追撃が出やすくなる(+${(lv * k * 100).toFixed(0)}%)` },
 };
 
 for (const [id, sk] of Object.entries(SKILLS)) {
@@ -440,8 +445,8 @@ function strike(atk, dfn, log) {
   }
 
   // 毒牙: 一定確率で毒を与える(毎ターン最大HPを削る)
-  if (atk.sk.dokuga && !dfn.poison && Math.random() < atk.sk.dokuga * SKILLS.dokuga.k) {
-    dfn.poison = 1;
+  if (atk.sk.dokuga && !dfn.poison && Math.random() < SKILLS.dokuga.chance) {
+    dfn.poison = atk.sk.dokuga; // 与えた側のレベルを覚えておき、削り量に使う
     note += ' [毒]';
   }
 
@@ -452,17 +457,20 @@ function battle(a, b) {
   const A = combatant(a), B = combatant(b);
   const log = [];
 
-  // 先制: 持っているほうが必ず先に動く(両方持っていればすばやさ勝負)
+  // 先手はすばやさの比で決める。「上回れば必ず先手」にすると、
+  // わずかな差でも先手が確定してしまい、伸ばした量に見合わない得になる。
+  const grabA = A.sk.sensei ? Math.random() < A.sk.sensei * SKILLS.sensei.grab : false;
+  const grabB = B.sk.sensei ? Math.random() < B.sk.sensei * SKILLS.sensei.grab : false;
   let first;
-  if (!!A.sk.sensei !== !!B.sk.sensei) first = !!A.sk.sensei;
-  else first = A.spd >= B.spd;
+  if (grabA !== grabB) first = grabA; // 先制が片方だけ発動したらそちらが先手
+  else first = Math.random() < A.spd / (A.spd + B.spd);
 
   for (let turn = 0; turn < COMBAT.turnCap && A.hp > 0 && B.hp > 0; turn++) {
     const atk = first ? A : B, dfn = first ? B : A;
 
     // 毒: 行動する前に最大HPを削られる
     if (atk.poison) {
-      const tick = Math.max(1, Math.round(atk.maxHp * 0.025));
+      const tick = Math.max(1, Math.round(atk.maxHp * atk.poison * SKILLS.dokuga.k));
       atk.hp -= tick;
       log.push(`${atk.name} は毒で ${tick} のダメージ(残り ${Math.max(0, atk.hp)})`);
       if (atk.hp <= 0) break;
