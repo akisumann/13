@@ -295,15 +295,18 @@ button:focus-visible, .mon:focus-visible {
 }
 
 /* ===== ステータス ===== */
-.stats { display: flex; flex-direction: column; gap: 7px; }
+.stats { display: flex; flex-direction: column; gap: 6px; }
 .stat-row {
   display: grid;
-  grid-template-columns: 2.6em 3.2em 1fr;
+  /* ラベルは「こうげき」など4文字が入る幅を確保する */
+  grid-template-columns: 4.6em 3.4em 1fr;
   align-items: center;
   gap: 9px;
   font-size: 12px;
 }
-.stat-row .k { color: var(--muted); letter-spacing: 0.08em; }
+.stat-row .k { color: var(--muted); letter-spacing: 0.08em; white-space: nowrap; }
+/* まだ戦闘に効かないステータスは控えめに見せる */
+.stat-row.is-idle { opacity: 0.5; }
 .stat-row .v {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;

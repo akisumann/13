@@ -4,14 +4,36 @@
 // データ
 // =====================================================================
 
+// ステータスは7種。現時点で戦闘に効くのは hp / atk / def / spd で、
+// mp・int・dex は表示と系統の個性づけのみ(魔法や命中を入れるときに使う)。
+const STATS = [
+  { key: 'hp',  label: 'HP',       base: (r) => 24 + r * 16, max: 280 },
+  { key: 'mp',  label: 'MP',       base: (r) => 10 + r * 8,  max: 150 },
+  { key: 'atk', label: 'こうげき', base: (r) => 6 + r * 5,   max: 110 },
+  { key: 'def', label: 'ぼうぎょ', base: (r) => 5 + r * 4,   max: 110 },
+  { key: 'int', label: 'かしこさ', base: (r) => 5 + r * 4,   max: 110 },
+  { key: 'spd', label: 'すばやさ', base: (r) => 6 + r * 4,   max: 110 },
+  { key: 'dex', label: 'きようさ', base: (r) => 5 + r * 4,   max: 110 },
+];
+
+// 戦闘で実際に参照しているステータス(それ以外は今のところ死にステータス)
+const LIVE_STATS = ['hp', 'atk', 'def', 'spd'];
+
 const FAMILIES = {
-  fire:  { name: '炎', glyph: '炎', color: '#ff6b4a', mod: { hp: 0.95, atk: 1.20, def: 0.90, spd: 1.00 } },
-  water: { name: '水', glyph: '水', color: '#4aa8ff', mod: { hp: 1.15, atk: 1.00, def: 1.05, spd: 0.95 } },
-  grass: { name: '草', glyph: '草', color: '#5fd07a', mod: { hp: 1.05, atk: 0.90, def: 1.20, spd: 1.00 } },
-  rock:  { name: '岩', glyph: '岩', color: '#d0a24a', mod: { hp: 1.20, atk: 1.05, def: 1.15, spd: 0.75 } },
-  wind:  { name: '風', glyph: '風', color: '#7ee0d0', mod: { hp: 0.90, atk: 1.00, def: 0.90, spd: 1.35 } },
-  dark:  { name: '闇', glyph: '闇', color: '#a76bff', mod: { hp: 1.00, atk: 1.15, def: 1.00, spd: 1.10 } },
-  light: { name: '光', glyph: '光', color: '#ffd95c', mod: { hp: 1.10, atk: 1.10, def: 1.10, spd: 1.10 } },
+  fire:  { name: '炎', glyph: '炎', color: '#ff6b4a',
+           mod: { hp: 0.95, mp: 1.05, atk: 1.20, def: 0.90, int: 1.10, spd: 1.00, dex: 0.95 } },
+  water: { name: '水', glyph: '水', color: '#4aa8ff',
+           mod: { hp: 1.15, mp: 1.25, atk: 1.00, def: 1.05, int: 1.15, spd: 0.95, dex: 1.05 } },
+  grass: { name: '草', glyph: '草', color: '#5fd07a',
+           mod: { hp: 1.05, mp: 1.15, atk: 0.90, def: 1.20, int: 1.05, spd: 1.00, dex: 1.00 } },
+  rock:  { name: '岩', glyph: '岩', color: '#d0a24a',
+           mod: { hp: 1.20, mp: 0.75, atk: 1.05, def: 1.15, int: 0.80, spd: 0.75, dex: 0.85 } },
+  wind:  { name: '風', glyph: '風', color: '#7ee0d0',
+           mod: { hp: 0.90, mp: 1.00, atk: 1.00, def: 0.90, int: 1.00, spd: 1.35, dex: 1.25 } },
+  dark:  { name: '闇', glyph: '闇', color: '#a76bff',
+           mod: { hp: 1.00, mp: 1.20, atk: 1.15, def: 1.00, int: 1.25, spd: 1.10, dex: 1.05 } },
+  light: { name: '光', glyph: '光', color: '#ffd95c',
+           mod: { hp: 1.10, mp: 1.15, atk: 1.10, def: 1.10, int: 1.15, spd: 1.10, dex: 1.10 } },
 };
 
 const BASE_FAMILIES = ['fire', 'water', 'grass', 'rock', 'wind'];
@@ -106,17 +128,21 @@ function statsOf(m) {
   const mod = FAMILIES[sp.family].mod;
   const r = sp.rank;
   const lv = m.level - 1;
-  return {
-    hp:  Math.round((24 + r * 16) * mod.hp)  + m.gene * 2 + lv * 3,
-    atk: Math.round((6 + r * 5) * mod.atk)   + m.gene + lv,
-    def: Math.round((5 + r * 4) * mod.def)   + m.gene + lv,
-    spd: Math.round((6 + r * 4) * mod.spd)   + m.gene + lv,
-  };
+  const out = {};
+  for (const st of STATS) {
+    // HPとMPは伸び幅が大きい「量」のステータスなので、成長分を倍にする
+    const pool = st.key === 'hp' || st.key === 'mp';
+    out[st.key] = Math.round(st.base(r) * mod[st.key])
+      + m.gene * (pool ? 2 : 1)
+      + lv * (pool ? 3 : 1);
+  }
+  return out;
 }
 
 function powerOf(m) {
   const s = statsOf(m);
-  return Math.round(s.hp / 2 + s.atk + s.def + s.spd);
+  // HP・MPは量のステータスなので半分だけ数える
+  return Math.round(s.hp / 2 + s.mp / 2 + s.atk + s.def + s.int + s.spd + s.dex);
 }
 
 // 経験値を与え、上がったレベル数を返す
@@ -441,14 +467,15 @@ function statBlock(m) {
   const s = statsOf(m);
   const f = famOf(m);
   const wrap = el('div', 'stats');
-  const rows = [['HP', s.hp, 260], ['こうげき', s.atk, 90], ['ぼうぎょ', s.def, 80], ['すばやさ', s.spd, 90]];
-  for (const [k, v, max] of rows) {
-    const r = el('div', 'stat-row');
-    r.appendChild(el('span', 'k', k));
+  for (const st of STATS) {
+    const v = s[st.key];
+    const live = LIVE_STATS.includes(st.key);
+    const r = el('div', 'stat-row' + (live ? '' : ' is-idle'));
+    r.appendChild(el('span', 'k', st.label));
     r.appendChild(el('span', 'v', String(v)));
     const meter = el('div', 'meter');
     const fill = el('i');
-    fill.style.width = clamp(v / max * 100, 4, 100) + '%';
+    fill.style.width = clamp(v / st.max * 100, 4, 100) + '%';
     meter.style.setProperty('--fc', f.color);
     meter.appendChild(fill);
     r.appendChild(meter);
@@ -511,6 +538,8 @@ function viewRanch(view) {
       m.level >= cap
         ? `Lv.${m.level}(上限)。これ以上は配合で上のランクへ。`
         : `Lv.${m.level} ・ 次のレベルまで ${expToNext(m) - m.exp} exp ・ 上限 Lv.${cap}`));
+    d.appendChild(el('p', 'hint',
+      `うすい行(${STATS.filter(st => !LIVE_STATS.includes(st.key)).map(st => st.label).join('・')})は、まだ戦闘に影響しない。`));
     if (S.monsters.length > 1) {
       const rel = el('button', 'btn ghost', 'にがす');
       rel.addEventListener('click', (ev) => {
