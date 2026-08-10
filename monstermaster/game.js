@@ -184,6 +184,7 @@ const EGG_PRICE = 60;
 const CAPTURE_RATE = 0.22;
 const DARK_CHANCE = 0.25;
 const ROSTER_CAP = 12; // 牧場の上限。あふれると育成が薄く分散して誰も育たなくなる。
+const PARTY_MAX = 3;   // 探索に連れて行ける数。野生も同数出る。
 
 // =====================================================================
 // ユーティリティ
@@ -454,46 +455,61 @@ function strike(atk, dfn, log) {
 }
 
 function battle(a, b) {
-  const A = combatant(a), B = combatant(b);
+  const A = (Array.isArray(a) ? a : [a]).map(combatant);
+  const B = (Array.isArray(b) ? b : [b]).map(combatant);
   const log = [];
+  const living = (side) => side.filter(c => c.hp > 0);
 
-  // 先手はすばやさの比で決める。「上回れば必ず先手」にすると、
-  // わずかな差でも先手が確定してしまい、伸ばした量に見合わない得になる。
-  const grabA = A.sk.sensei ? Math.random() < A.sk.sensei * SKILLS.sensei.grab : false;
-  const grabB = B.sk.sensei ? Math.random() < B.sk.sensei * SKILLS.sensei.grab : false;
-  let first;
-  if (grabA !== grabB) first = grabA; // 先制が片方だけ発動したらそちらが先手
-  else first = Math.random() < A.spd / (A.spd + B.spd);
-
-  for (let turn = 0; turn < COMBAT.turnCap && A.hp > 0 && B.hp > 0; turn++) {
-    const atk = first ? A : B, dfn = first ? B : A;
-
-    // 毒: 行動する前に最大HPを削られる
-    if (atk.poison) {
-      const tick = Math.max(1, Math.round(atk.maxHp * atk.poison * SKILLS.dokuga.k));
-      atk.hp -= tick;
-      log.push(`${atk.name} は毒で ${tick} のダメージ(残り ${Math.max(0, atk.hp)})`);
-      if (atk.hp <= 0) break;
+  for (let round = 0; round < COMBAT.turnCap && living(A).length && living(B).length; round++) {
+    // 行動順。すばやさを速度とする競争にしているので、
+    // 先に動ける確率がすばやさの比とちょうど一致する(1対1のときの挙動と同じ)。
+    const order = [
+      ...living(A).map(c => ({ c, foes: B })),
+      ...living(B).map(c => ({ c, foes: A })),
+    ];
+    for (const o of order) {
+      const grabbed = o.c.sk.sensei && Math.random() < o.c.sk.sensei * SKILLS.sensei.grab;
+      o.key = grabbed ? -Infinity : -Math.log(Math.random() || 1e-9) / Math.max(1, o.c.spd);
     }
+    order.sort((x, y) => x.key - y.key);
 
-    strike(atk, dfn, log);
+    for (const o of order) {
+      if (o.c.hp <= 0) continue;
+      const foes = living(o.foes);
+      if (!foes.length) break;
 
-    // 追撃: すばやさが相手を上回っているほど、続けてもう一撃が出やすい
-    // 先制スキルはこの起きやすさも底上げする
-    const spdTotal = atk.spd + dfn.spd;
-    let extra = clamp((atk.spd - dfn.spd) / (spdTotal || 1) * COMBAT.spdSwing,
-      0, COMBAT.spdExtraMax);
-    if (atk.sk.sensei) extra = Math.min(COMBAT.spdExtraMax, extra + atk.sk.sensei * SKILLS.sensei.k);
-    if (dfn.hp > 0 && atk.hp > 0 && Math.random() < extra) strike(atk, dfn, log);
+      // 毒: 行動する前に最大HPを削られる
+      if (o.c.poison) {
+        const tick = Math.max(1, Math.round(o.c.maxHp * o.c.poison * SKILLS.dokuga.k));
+        o.c.hp -= tick;
+        log.push(`${o.c.name} は毒で ${tick} のダメージ(残り ${Math.max(0, o.c.hp)})`);
+        if (o.c.hp <= 0) { log.push(`${o.c.name} は倒れた`); continue; }
+      }
 
-    first = !first;
+      const target = pick(foes);
+      strike(o.c, target, log);
+      if (target.hp <= 0) { log.push(`${target.name} は倒れた`); continue; }
+
+      // 追撃: 狙った相手よりすばやさが上回っているほど出やすい
+      const spdTotal = o.c.spd + target.spd;
+      let extra = clamp((o.c.spd - target.spd) / (spdTotal || 1) * COMBAT.spdSwing,
+        0, COMBAT.spdExtraMax);
+      if (o.c.sk.sensei) extra = Math.min(COMBAT.spdExtraMax, extra + o.c.sk.sensei * SKILLS.sensei.k);
+      if (Math.random() < extra) {
+        strike(o.c, target, log);
+        if (target.hp <= 0) log.push(`${target.name} は倒れた`);
+      }
+    }
   }
-  // 決着がつかなかった場合は、HPの残り割合が多いほうの勝ち
-  if (A.hp > 0 && B.hp > 0) {
+
+  const hpLeft = (side) => side.reduce((t, c) => t + Math.max(0, c.hp), 0);
+  const hpMax = (side) => side.reduce((t, c) => t + c.maxHp, 0);
+  const aDown = !living(A).length, bDown = !living(B).length;
+  if (!aDown && !bDown) {
     log.push('決着がつかず、消耗の少ないほうの判定勝ち');
-    return { win: A.hp / A.maxHp >= B.hp / B.maxHp, log };
+    return { win: hpLeft(A) / hpMax(A) >= hpLeft(B) / hpMax(B), log, downed: A.filter(c => c.hp <= 0).length };
   }
-  return { win: B.hp <= 0 && A.hp > 0, log };
+  return { win: bDown && !aDown, log, downed: A.filter(c => c.hp <= 0).length };
 }
 
 function wildFor(area) {
@@ -504,25 +520,33 @@ function wildFor(area) {
   });
 }
 
-// 1回の探索を解決し、結果をまとめて返す(状態の書き換えは呼び出し側)
-function explore(mon, area, canCapture) {
-  const wild = wildFor(area);
-  const res = battle(mon, wild);
+// 1回の探索を解決し、結果をまとめて返す(状態の書き換えは呼び出し側)。
+// 野生はこちらと同数出るので、経験値を山分けしても1匹あたりの取り分は変わらない。
+function explore(party, area, canCapture) {
+  const team = Array.isArray(party) ? party : [party];
+  const wilds = team.map(() => wildFor(area));
+  const res = battle(team, wilds);
   const out = {
-    wild,
+    wilds,
     win: res.win,
     log: res.log,
+    downed: res.downed,
     exp: 0, gold: 0, levelUps: 0, captured: null, missedCapture: false,
   };
+  const expOf = (w) => spOf(w).rank * 20 + w.level * 4;
+  const total = wilds.reduce((t, w) => t + expOf(w), 0);
   if (res.win) {
-    out.exp = spOf(wild).rank * 20 + wild.level * 4;
+    out.exp = total;
     out.gold = ri(area.gold[0], area.gold[1]);
     if (Math.random() < CAPTURE_RATE) {
       if (canCapture === false) out.missedCapture = true;
-      else out.captured = makeMonster(wild.sp, { level: 1, gene: wild.gene });
+      else {
+        const w = pick(wilds);
+        out.captured = makeMonster(w.sp, { level: 1, gene: w.gene, skills: w.skills.slice() });
+      }
     }
   } else {
-    out.exp = Math.floor((spOf(wild).rank * 20) / 3);
+    out.exp = Math.floor(total / 3);
     out.gold = Math.floor(ri(area.gold[0], area.gold[1]) / 4);
   }
   return out;
@@ -541,7 +565,7 @@ const SAVE_KEY = 'monstermaster.v1';
 
 let S = null;
 let UI = {
-  tab: 'ranch', picks: [], area: 1, sortie: null, result: null, open: null,
+  tab: 'ranch', picks: [], area: 1, party: [], result: null, open: null,
   born: null, bornNew: false, // 直前に配合で生まれた子(配合タブに留まったまま結果を見せる)
   order: null,                // 表示順(uidの配列)。null なら次の描画で強さ順に並べ直す
 };
@@ -614,10 +638,19 @@ function doFuse(a, b) {
 
 function rosterFull() { return S.monsters.length >= ROSTER_CAP; }
 
-function doExplore(mon, area) {
-  const out = explore(mon, area, !rosterFull());
+function doExplore(party, area) {
+  const team = Array.isArray(party) ? party : [party];
+  const out = explore(team, area, !rosterFull());
   S.gold += out.gold;
-  out.levelUps = gainExp(mon, out.exp);
+
+  // 経験値は参加した全員で山分け(倒れた仲間も受け取る)
+  const share = Math.max(1, Math.floor(out.exp / team.length));
+  out.gains = team.map(m => {
+    const ups = gainExp(m, share);
+    out.levelUps += ups;
+    return { name: spOf(m).name, exp: share, ups };
+  });
+
   if (out.captured) {
     S.monsters.push(out.captured);
     out.capturedIsNew = discover(out.captured.sp);
@@ -1006,57 +1039,71 @@ function viewExplore(view) {
   const r = UI.result;
   const oh = el('div', 'head');
   oh.appendChild(el('h2', null, !r ? '結果' : r.win ? '勝利' : '敗走'));
-  if (r) oh.appendChild(el('span', 'note', `${r.monName} vs ${spOf(r.wild).name}`));
+  if (r) oh.appendChild(el('span', 'note', r.wilds.map(w => spOf(w).name).join('・')));
   out.appendChild(oh);
 
   const log = el('div', 'log');
   if (!r) {
-    log.appendChild(el('div', 'msg-dim', 'エリアと出撃するモンスターを選んで、下のボタンで送り出そう。'));
+    log.appendChild(el('div', 'msg-dim', 'エリアと編成を選んで、下のボタンで送り出そう。'));
   } else {
     log.appendChild(el('div', r.win ? 'win' : 'lose',
-      r.win ? `${spOf(r.wild).name} を打ち倒した` : `${spOf(r.wild).name} に敗れて逃げ帰った`));
-    log.appendChild(el('div', null, `経験値 +${r.exp} ・ ${r.gold} G を獲得`));
-    if (r.levelUps > 0) log.appendChild(el('div', 'get', `レベルが ${r.levelUps} 上がった!`));
+      r.win ? `${r.wilds.length}匹の野生を打ち倒した`
+            : `敗れて逃げ帰った${r.downed ? `(${r.downed}匹が倒れた)` : ''}`));
+    log.appendChild(el('div', null,
+      `経験値 +${r.exp} を ${r.gains.length}匹で山分け(1匹あたり +${r.gains[0].exp}) ・ ${r.gold} G`));
+    if (r.levelUps > 0) {
+      const ups = r.gains.filter(g => g.ups > 0).map(g => `${g.name}+${g.ups}`).join(' ');
+      log.appendChild(el('div', 'get', `レベルアップ! ${ups}`));
+    }
     if (r.captured) {
       log.appendChild(el('div', 'get',
         `${spOf(r.captured).name} が仲間になった!${r.capturedIsNew ? '(新種)' : ''}`));
     }
     if (r.missedCapture) {
-      log.appendChild(el('div', null,
-        `${spOf(r.wild).name} はなついたが、牧場がいっぱいで連れ帰れなかった。`));
+      log.appendChild(el('div', null, '野生がなついたが、牧場がいっぱいで連れ帰れなかった。'));
     }
     for (const line of r.log.slice(-8)) log.appendChild(el('div', null, line));
   }
   out.appendChild(log);
   view.appendChild(out);
 
-  // 出撃するモンスター(取得順で固定)
-  const sortie = S.monsters.find(m => m.uid === UI.sortie) || S.monsters[0];
-  UI.sortie = sortie ? sortie.uid : null;
+  // 編成(取得順で固定)。選んだ数だけ野生も出てくる。
+  UI.party = UI.party.filter(u => S.monsters.some(m => m.uid === u));
+  if (!UI.party.length && S.monsters.length) UI.party = [roster()[0].uid];
+  const party = UI.party.map(u => S.monsters.find(m => m.uid === u));
 
   const panel = el('div', 'panel');
   const ph = el('div', 'head');
-  ph.appendChild(el('h2', null, '出撃するモンスター'));
-  ph.appendChild(el('span', 'note', sortie ? spOf(sortie).name : ''));
+  ph.appendChild(el('h2', null, '編成'));
+  ph.appendChild(el('span', 'note', `${party.length} / ${PARTY_MAX} 匹 ・ 野生も同数`));
   panel.appendChild(ph);
 
   const list = el('div', 'list');
   for (const m of roster()) {
+    const idx = UI.party.indexOf(m.uid);
     list.appendChild(monRow(m, {
-      selected: m.uid === UI.sortie,
-      onClick: () => { UI.sortie = m.uid; render(); },
+      selected: idx >= 0,
+      badge: idx >= 0 ? String(idx + 1) : null,
+      onClick: () => {
+        if (idx >= 0) { if (UI.party.length > 1) UI.party.splice(idx, 1); }
+        else if (UI.party.length < PARTY_MAX) UI.party.push(m.uid);
+        else UI.party = [...UI.party.slice(1), m.uid];
+        render();
+      },
     }));
   }
   panel.appendChild(list);
+  panel.appendChild(el('p', 'hint',
+    `連れて行った数だけ野生も現れ、経験値は全員で山分けする。` +
+    `取り分は1匹で行ったときと同じなので、まとめて育てるほど早い。`));
   view.appendChild(panel);
 
   // 連打するボタンは固定バーへ
-  const go = el('button', 'btn primary', `${area.name} へ送り出す`);
+  const go = el('button', 'btn primary', `${area.name} へ送り出す(${party.length}匹)`);
   go.addEventListener('click', () => {
-    const mon = S.monsters.find(m => m.uid === UI.sortie);
-    if (!mon) return;
-    UI.result = doExplore(mon, area);
-    UI.result.monName = spOf(mon).name;
+    const team = UI.party.map(u => S.monsters.find(m => m.uid === u)).filter(Boolean);
+    if (!team.length) return;
+    UI.result = doExplore(team, area);
     save();
     render();
   });
