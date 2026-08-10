@@ -41,28 +41,84 @@ const COMBAT = {
 // 系統補正。同ランクの総当たりで勝率がそろうよう数値探索で調整してある。
 // MP補正だけは調整対象から外し、系統ごとの多寡をそのまま残している
 // (MPが低い系統は魔力よろいが薄いという不利を負い、その埋め合わせは
-//  他の6項目の底上げで行う。岩は他6項目が平均 +0.05 ぶん高い)。
+//  他の6項目の底上げで行う。岩は他6項目の平均が 1.158 と最も高い)。
 const FAMILIES = {
   fire:  { name: '炎', glyph: '炎', color: '#ff6b4a',   // 一撃が重いが打たれ弱い
-           mod: { hp: 0.96, mp: 1.06, atk: 1.21, def: 0.91, int: 1.11, spd: 1.01, dex: 0.96 } },
+           mod: { hp: 0.97, mp: 1.06, atk: 1.22, def: 0.92, int: 1.12, spd: 1.02, dex: 0.97 } },
   water: { name: '水', glyph: '水', color: '#4aa8ff',   // 魔力よろいが厚く粘る
-           mod: { hp: 1.17, mp: 1.25, atk: 1.02, def: 1.07, int: 1.17, spd: 0.97, dex: 1.07 } },
+           mod: { hp: 1.19, mp: 1.25, atk: 1.04, def: 1.09, int: 1.19, spd: 0.99, dex: 1.09 } },
   grass: { name: '草', glyph: '草', color: '#5fd07a',   // 守りとMPで長期戦向き
-           mod: { hp: 1.13, mp: 1.20, atk: 0.98, def: 1.30, int: 1.13, spd: 1.08, dex: 1.08 } },
+           mod: { hp: 1.15, mp: 1.20, atk: 1.00, def: 1.32, int: 1.15, spd: 1.10, dex: 1.10 } },
   // 岩はMPが薄い(0.81)。魔力よろいが短いという不利を負うぶん、
   // 他の6項目が他系統より一段高く積んである。
   rock:  { name: '岩', glyph: '岩', color: '#d0a24a',
-           mod: { hp: 1.38, mp: 0.81, atk: 1.23, def: 1.33, int: 0.98, spd: 0.93, dex: 1.03 } },
+           mod: { hp: 1.39, mp: 0.81, atk: 1.24, def: 1.34, int: 0.99, spd: 0.94, dex: 1.04 } },
   wind:  { name: '風', glyph: '風', color: '#7ee0d0',   // 追撃と受け流しで手数勝負
-           mod: { hp: 0.98, mp: 1.05, atk: 1.08, def: 0.98, int: 1.08, spd: 1.43, dex: 1.33 } },
+           mod: { hp: 1.02, mp: 1.05, atk: 1.12, def: 1.02, int: 1.12, spd: 1.47, dex: 1.37 } },
   dark:  { name: '闇', glyph: '闇', color: '#a76bff',   // 見切りで一方的に削る
-           mod: { hp: 0.92, mp: 1.16, atk: 1.07, def: 0.92, int: 1.17, spd: 1.02, dex: 0.97 } },
+           mod: { hp: 0.93, mp: 1.16, atk: 1.08, def: 0.93, int: 1.18, spd: 1.03, dex: 0.98 } },
   // 最終形態。素の補正は控えめだが、唯一すべての成長係数がSなので育てるほど突き放す。
   light: { name: '光', glyph: '光', color: '#ffd95c',
-           mod: { hp: 0.91, mp: 0.91, atk: 0.91, def: 0.91, int: 0.91, spd: 0.91, dex: 0.91 } },
+           mod: { hp: 0.94, mp: 0.91, atk: 0.94, def: 0.94, int: 0.94, spd: 0.94, dex: 0.94 } },
 };
 
 const BASE_FAMILIES = ['fire', 'water', 'grass', 'rock', 'wind'];
+
+// =====================================================================
+// スキル
+// 合計値 = モンスターのレベル ÷ 2(切り捨て)。それを持っているスキルで割る。
+// 1つに絞れば高レベル、2つ持てばその分1つあたりが下がる。上限はレベル10。
+// =====================================================================
+
+const SKILL_MAX = 10;
+
+const SKILLS = {
+  // ---- 素直な強化(ステータスに倍率が乗る) ----
+  // 係数はスキル同士の総当たりで勝率がそろうよう数値探索で調整した。
+  // 伸び幅がまちまちなのは、ダメージ式の中での効き方が違うため
+  // (こうげきは二乗で効くので小さく、ぼうぎょは逓減するので大きく取る)。
+  gouwan:  { name: '剛腕',   stat: 'atk', per: 0.013 },
+  teppeki: { name: '鉄壁',   stat: 'def', per: 0.043 },
+  idaten:  { name: '韋駄天', stat: 'spd', per: 0.023 },
+  meikyou: { name: '明鏡',   stat: 'int', per: 0.029 },
+  kyoku:   { name: '巨躯',   stat: 'hp',  per: 0.034 },
+  masen:   { name: '魔泉',   stat: 'mp',  per: 0.054 },
+
+  // ---- 特殊な振る舞い ----
+  kaishin: { name: '会心',   k: 0.026, desc: (lv, k) => `${(lv * k * 100).toFixed(0)}% の確率で1.8倍のダメージ` },
+  hangeki: { name: '反撃',   k: 0.034, desc: (lv, k) => `受け流したとき、こうげきの ${(lv * k * 100).toFixed(0)}% で反撃する` },
+  kyushu:  { name: '吸収',   k: 0.035, desc: (lv, k) => `与えたダメージの ${(lv * k * 100).toFixed(0)}% だけHPが回復する` },
+  dokuga:  { name: '毒牙',   k: 0.037, desc: (lv, k) => `${(lv * k * 100).toFixed(0)}% の確率で毒。毒は毎ターン最大HPの2.5%` },
+  fukutsu: { name: '不屈',   k: 0.080, desc: (lv, k) => `HPが1/4以下のあいだ こうげき +${(lv * k * 100).toFixed(0)}%` },
+  sensei:  { name: '先制',   k: 0.015, desc: (lv, k) => `必ず先に動き、追撃が出やすくなる(+${(lv * k * 100).toFixed(0)}%)` },
+};
+
+for (const [id, sk] of Object.entries(SKILLS)) {
+  sk.id = id;
+  if (sk.stat) {
+    const label = STATS.find(st => st.key === sk.stat).label;
+    sk.desc = (lv) => `${label} +${(lv * sk.per * 100).toFixed(0)}%`;
+  } else {
+    const raw = sk.desc;
+    sk.desc = (lv) => raw(lv, sk.k);
+  }
+}
+
+// 種族が本来よく持つスキル。配合で親から何も受け継がなかったとき、
+// および野生・たまごの個体はここから選ばれる。
+const INNATE_SKILLS = {
+  fire:  ['gouwan', 'kaishin', 'fukutsu'],
+  water: ['masen', 'kyushu', 'teppeki'],
+  grass: ['teppeki', 'dokuga', 'kyoku'],
+  rock:  ['kyoku', 'fukutsu', 'gouwan'],
+  // 風は受け流しが多いので、反撃が噛み合う
+  wind:  ['idaten', 'sensei', 'hangeki'],
+  dark:  ['meikyou', 'dokuga', 'kyushu'],
+  light: ['meikyou', 'kyoku', 'sensei'],
+};
+
+// 配合で親からスキルを受け継ぐ個数の割合
+const SKILL_INHERIT = [0.20, 0.40, 0.40]; // 0個 / 1個 / 2個
 
 // 4つめの文字列が成長係数(hp mp atk def int spd dex の順)。
 // 系統の得意不得意とランクから起こした値を、種族値としてそのまま持たせている。
@@ -177,7 +233,49 @@ function makeMonster(speciesId, opts) {
     level: o.level || 1,
     exp: 0,
     gene: o.gene || 0,
+    // 指定がなければ、その種族がよく持つスキルを1つ覚えて生まれる
+    skills: o.skills || [pick(INNATE_SKILLS[sp.family])],
   };
+}
+
+// スキル合計値 = レベル ÷ 2。持っているスキルで割り、余りは先頭から配る。
+function skillLevels(m) {
+  const list = m.skills || [];
+  if (!list.length) return [];
+  const budget = Math.floor(m.level / 2);
+  const base = Math.floor(budget / list.length);
+  const rem = budget % list.length;
+  return list.map((id, i) => ({
+    id,
+    skill: SKILLS[id],
+    level: Math.min(SKILL_MAX, base + (i < rem ? 1 : 0)),
+  }));
+}
+
+// レベル0のスキルはまだ発現していない
+function activeSkills(m) {
+  const out = {};
+  for (const s of skillLevels(m)) {
+    if (s.level > 0) out[s.id] = Math.max(out[s.id] || 0, s.level);
+  }
+  return out;
+}
+
+// 配合でのスキル習得: 親から0〜2個。2個なら両親から1つずつ、
+// 1個ならどちらかの親から、0個なら子の種族が本来よく持つスキルから。
+function inheritSkills(a, b, childSpecies) {
+  const r = Math.random();
+  const n = r < SKILL_INHERIT[0] ? 0 : r < SKILL_INHERIT[0] + SKILL_INHERIT[1] ? 1 : 2;
+  const from = (m) => (m.skills && m.skills.length) ? pick(m.skills) : null;
+
+  let got = [];
+  if (n === 2) got = [from(a), from(b)];
+  else if (n === 1) got = [from(Math.random() < 0.5 ? a : b)];
+  got = got.filter(Boolean);
+
+  // 何も受け継げなかった場合は種族本来のスキルを1つ
+  if (!got.length) got = [pick(INNATE_SKILLS[childSpecies.family])];
+  return [...new Set(got)];
 }
 
 function spOf(m) { return speciesById(m.sp); }
@@ -262,7 +360,7 @@ function fuse(a, b) {
   const family = fuseFamily(a, b);
   const rank = fuseRank(a, b, family);
   const sp = speciesFor(family, rank);
-  return makeMonster(sp.id, { gene: fuseGene(a, b) });
+  return makeMonster(sp.id, { gene: fuseGene(a, b), skills: inheritSkills(a, b, sp) });
 }
 
 // 実行前に見せる予測。闇が出うる組み合わせは伏せる。
@@ -288,10 +386,24 @@ function previewFusion(a, b) {
 // 戦闘・探索
 // =====================================================================
 
-// 1回の攻撃。7ステータスすべてが常時効果として噛み合う。
+// 戦闘用の状態を作る。ステータス強化系のスキルはここで数値に織り込む。
+function combatant(m) {
+  const s = statsOf(m);
+  const sk = activeSkills(m);
+  for (const [id, lv] of Object.entries(sk)) {
+    const def = SKILLS[id];
+    if (def.stat) s[def.stat] = Math.round(s[def.stat] * (1 + def.per * lv));
+  }
+  return { name: spOf(m).name, ...s, maxHp: s.hp, sk, poison: 0 };
+}
+
+// 1回の攻撃。7ステータスとスキルがすべて常時効果として噛み合う。
 function strike(atk, dfn, log) {
+  // 不屈: 追い詰められているあいだ こうげきが上がる
+  let power = atk.atk;
+  if (atk.sk.fukutsu && atk.hp <= atk.maxHp / 4) power *= 1 + atk.sk.fukutsu * SKILLS.fukutsu.k;
+
   // ぼうぎょ: こうげきとの比で軽減する(逓減するので硬さが無敵にならない)
-  const power = atk.atk;
   let dmg = power * power / (power + dfn.def);
   dmg *= 1 + ri(-100, 100) / 100 * COMBAT.spread;
 
@@ -299,6 +411,10 @@ function strike(atk, dfn, log) {
   const intTotal = atk.int + dfn.int;
   dmg *= 1 + (intTotal ? (atk.int - dfn.int) / intTotal : 0) * COMBAT.insightSwing;
   dmg = Math.max(1, Math.round(dmg));
+
+  // 会心: 一定確率で大きく入る
+  const crit = atk.sk.kaishin && Math.random() < atk.sk.kaishin * SKILLS.kaishin.k;
+  if (crit) dmg = Math.round(dmg * 1.8);
 
   // 受け流し: きようさの比に応じた確率で大きく軽減
   const dexTotal = atk.dex + dfn.dex;
@@ -316,33 +432,70 @@ function strike(atk, dfn, log) {
   dfn.hp -= dmg;
 
   let note = '';
+  if (crit) note += ' [会心]';
   if (parried) note += ' [受け流し]';
   if (absorbed > 0) note += ` [MPが${absorbed}肩代わり]`;
   else if (dfn.mp <= 0) note += ' [MP切れ]';
+
+  // 吸収: 与えたダメージの一部を回復する
+  if (atk.sk.kyushu && dmg > 0) {
+    const heal = Math.max(1, Math.round(dmg * atk.sk.kyushu * SKILLS.kyushu.k));
+    atk.hp = Math.min(atk.maxHp, atk.hp + heal);
+    note += ` [${heal}吸収]`;
+  }
+
+  // 反撃: 受け流しに成功したら、こうげきの一部を返す
+  if (parried && dfn.sk.hangeki && atk.hp > 0) {
+    const back = Math.max(1, Math.round(dfn.atk * dfn.sk.hangeki * SKILLS.hangeki.k));
+    atk.hp -= back;
+    note += ` [反撃${back}]`;
+  }
+
+  // 毒牙: 一定確率で毒を与える(毎ターン最大HPを削る)
+  if (atk.sk.dokuga && !dfn.poison && Math.random() < atk.sk.dokuga * SKILLS.dokuga.k) {
+    dfn.poison = 1;
+    note += ' [毒]';
+  }
+
   log.push(`${atk.name} の攻撃 → ${dmg} ダメージ${note}(${dfn.name} 残り ${Math.max(0, dfn.hp)})`);
 }
 
 function battle(a, b) {
-  const A = { name: spOf(a).name, ...statsOf(a) };
-  const B = { name: spOf(b).name, ...statsOf(b) };
-  const maxA = A.hp, maxB = B.hp;
+  const A = combatant(a), B = combatant(b);
   const log = [];
-  let first = A.spd >= B.spd;
+
+  // 先制: 持っているほうが必ず先に動く(両方持っていればすばやさ勝負)
+  let first;
+  if (!!A.sk.sensei !== !!B.sk.sensei) first = !!A.sk.sensei;
+  else first = A.spd >= B.spd;
 
   for (let turn = 0; turn < COMBAT.turnCap && A.hp > 0 && B.hp > 0; turn++) {
     const atk = first ? A : B, dfn = first ? B : A;
+
+    // 毒: 行動する前に最大HPを削られる
+    if (atk.poison) {
+      const tick = Math.max(1, Math.round(atk.maxHp * 0.025));
+      atk.hp -= tick;
+      log.push(`${atk.name} は毒で ${tick} のダメージ(残り ${Math.max(0, atk.hp)})`);
+      if (atk.hp <= 0) break;
+    }
+
     strike(atk, dfn, log);
+
     // 追撃: すばやさが相手を上回っているほど、続けてもう一撃が出やすい
+    // 先制スキルはこの起きやすさも底上げする
     const spdTotal = atk.spd + dfn.spd;
-    const extra = clamp((atk.spd - dfn.spd) / (spdTotal || 1) * COMBAT.spdSwing,
+    let extra = clamp((atk.spd - dfn.spd) / (spdTotal || 1) * COMBAT.spdSwing,
       0, COMBAT.spdExtraMax);
-    if (dfn.hp > 0 && Math.random() < extra) strike(atk, dfn, log);
+    if (atk.sk.sensei) extra = Math.min(COMBAT.spdExtraMax, extra + atk.sk.sensei * SKILLS.sensei.k);
+    if (dfn.hp > 0 && atk.hp > 0 && Math.random() < extra) strike(atk, dfn, log);
+
     first = !first;
   }
   // 決着がつかなかった場合は、HPの残り割合が多いほうの勝ち
   if (A.hp > 0 && B.hp > 0) {
     log.push('決着がつかず、消耗の少ないほうの判定勝ち');
-    return { win: A.hp / maxA >= B.hp / maxB, log };
+    return { win: A.hp / A.maxHp >= B.hp / B.maxHp, log };
   }
   return { win: B.hp <= 0 && A.hp > 0, log };
 }
@@ -435,6 +588,11 @@ function load() {
     if (!d || !Array.isArray(d.monsters) || !d.monsters.length) return null;
     if (d.monsters.some(m => !speciesById(m.sp))) return null;
     _uid = d.uid || (Math.max(...d.monsters.map(m => m.uid)) + 1);
+    // スキル導入前のセーブデータには、種族本来のスキルを1つ持たせる
+    for (const m of d.monsters) {
+      m.skills = (m.skills || []).filter(id => SKILLS[id]);
+      if (!m.skills.length) m.skills = [pick(INNATE_SKILLS[speciesById(m.sp).family])];
+    }
     return {
       gold: d.gold || 0,
       monsters: d.monsters,
@@ -557,6 +715,12 @@ function monRow(m, opts) {
   const cap = maxLevelOf(m);
   main.appendChild(el('div', 'mon-sub',
     `Lv.${m.level}${m.level >= cap ? '(最大)' : ''} ・ 遺伝 +${m.gene}`));
+  const sk = el('div', 'mon-skills');
+  for (const s of skillLevels(m)) {
+    sk.appendChild(el('span', 'chip-skill' + (s.level ? '' : ' is-dormant'),
+      `${s.skill.name}${s.level || '—'}`));
+  }
+  main.appendChild(sk);
   row.appendChild(main);
 
   if (o.badge) {
@@ -660,6 +824,30 @@ function viewRanch(view) {
     dh.appendChild(el('span', 'note', `${famOf(m).name}系 ・ ${rankLabel(spOf(m).rank)}`));
     d.appendChild(dh);
     d.appendChild(statBlock(m));
+
+    // スキル(合計値はレベルの半分。複数持つとその分1つあたりが下がる)
+    const budget = Math.floor(m.level / 2);
+    const sh = el('div', 'head');
+    sh.appendChild(el('h2', null, 'スキル'));
+    sh.appendChild(el('span', 'note', `合計 ${budget}(Lv.${m.level} ÷ 2)`));
+    d.appendChild(sh);
+    const sl = el('div', 'skill-list');
+    for (const s of skillLevels(m)) {
+      const row = el('div', 'skill-row' + (s.level ? '' : ' is-dormant'));
+      const head = el('div', 'sk-head');
+      head.appendChild(el('span', 'sk-name', s.skill.name));
+      head.appendChild(el('span', 'sk-lv', s.level ? `Lv.${s.level}` : '未発現'));
+      row.appendChild(head);
+      row.appendChild(el('div', 'sk-desc',
+        s.level ? s.skill.desc(s.level) : `Lv.${(m.skills.length * 2)} で発現する`));
+      sl.appendChild(row);
+    }
+    d.appendChild(sl);
+    if (m.skills.length > 1) {
+      d.appendChild(el('p', 'hint',
+        `${m.skills.length}つ持っているので合計値を分け合っている。1つだけなら Lv.${Math.min(SKILL_MAX, budget)} まで伸びる。`));
+    }
+
     const cap = maxLevelOf(m);
     d.appendChild(el('p', 'hint',
       m.level >= cap
@@ -728,6 +916,9 @@ function viewFuse(view) {
     txt.appendChild(el('div', 't2',
       `${FAMILIES[pv.species.family].name}系 ・ 遺伝 +${pv.gene}` + (pv.surprise ? ' ・ まれに別の系統が出る' : '')));
     txt.appendChild(growthLine(pv.species));
+    txt.appendChild(el('div', 't3',
+      `スキルは親から0〜2個ランダムに受け継ぐ(${picked.map(p =>
+        p.skills.map(id => SKILLS[id].name).join('・')).join(' / ')})`));
   } else if (born) {
     // 配合直後。タブを移動しない代わりに、生まれた子をここで見せる。
     res.appendChild(emblem(born, 'lg'));
@@ -735,13 +926,15 @@ function viewFuse(view) {
     txt.appendChild(el('div', 't2',
       `${famOf(born).name}系 ・ 遺伝 +${born.gene}` + (UI.bornNew ? ' ・ 新種発見!' : '')));
     txt.appendChild(growthLine(spOf(born)));
+    txt.appendChild(el('div', 't3',
+      `スキル ${born.skills.map(id => SKILLS[id].name).join('・')}`));
   } else {
     const ph = el('div', 'emblem lg', '?');
     ph.style.setProperty('--fc', '#7b86a8');
     res.appendChild(ph);
     txt.appendChild(el('div', 't1', picked.length === 1 ? 'あと1匹えらぶ' : '親を2匹えらぶ'));
     txt.appendChild(el('div', 't2', '同じランクどうしなら、ランクが1つ上がる'));
-    txt.appendChild(el('div', 't3', '成長係数は種ごとに固定。遺伝では変わらない。'));
+    txt.appendChild(el('div', 't3', 'スキルは親から0〜2個ランダムに受け継ぐ'));
   }
   res.appendChild(txt);
   panel.appendChild(res);
@@ -923,6 +1116,25 @@ function viewDex(view) {
   legend.appendChild(el('p', 'hint',
     'すべて常時発動。相手との比で効くので、どのランクでも同じように働く。'));
   view.appendChild(legend);
+
+  // スキル一覧(Lv.10 のときの効果で書く)
+  const skl = el('div', 'panel');
+  const skh = el('div', 'head');
+  skh.appendChild(el('h2', null, 'スキル'));
+  skh.appendChild(el('span', 'note', `全${Object.keys(SKILLS).length}種 ・ 表記はLv.10`));
+  skl.appendChild(skh);
+  const skul = el('div', 'effects');
+  for (const sk of Object.values(SKILLS)) {
+    const row = el('div', 'effect-row');
+    row.appendChild(el('span', 'ek', sk.name));
+    row.appendChild(el('span', 'ev', sk.desc(SKILL_MAX)));
+    skul.appendChild(row);
+  }
+  skl.appendChild(skul);
+  skl.appendChild(el('p', 'hint',
+    'スキルの合計値はレベルの半分。1つに絞れば高レベルになり、2つ持つと分け合う。' +
+    '配合では親から0〜2個ランダムに受け継ぎ、何も継げなかったときは種族本来のスキルを覚える。'));
+  view.appendChild(skl);
 }
 
 // --------------------------------------------- 描画
