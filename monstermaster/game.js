@@ -257,7 +257,10 @@ function areaUnlocked(area, monsters) {
 const SAVE_KEY = 'monstermaster.v1';
 
 let S = null;
-let UI = { tab: 'ranch', picks: [], area: 1, sortie: null, result: null, open: null };
+let UI = {
+  tab: 'ranch', picks: [], area: 1, sortie: null, result: null, open: null,
+  born: null, bornNew: false, // 直前に配合で生まれた子(配合タブに留まったまま結果を見せる)
+};
 
 function newState() {
   const fams = BASE_FAMILIES.slice();
@@ -538,23 +541,30 @@ function viewFuse(view) {
   // プレビュー欄は常に描画する。2匹目を選んだ瞬間に生えてくると一覧が下にずれてしまうため。
   const ready = picked.length === 2;
   const pv = ready ? previewFusion(picked[0], picked[1]) : null;
+  const born = (!picked.length && UI.born != null)
+    ? S.monsters.find(m => m.uid === UI.born) : null;
   const res = el('div', 'result');
+  const txt = el('div', 'txt');
+
   if (ready) {
     res.appendChild(emblem({ sp: pv.species.id, level: 1, gene: pv.gene, uid: -1 }, 'lg'));
-    const txt = el('div', 'txt');
     txt.appendChild(el('div', 't1', `${pv.species.name}  ${rankLabel(pv.species.rank)}`));
     txt.appendChild(el('div', 't2',
       `${FAMILIES[pv.species.family].name}系 ・ 遺伝 +${pv.gene}` + (pv.surprise ? ' ・ まれに別の系統が出る' : '')));
-    res.appendChild(txt);
+  } else if (born) {
+    // 配合直後。タブを移動しない代わりに、生まれた子をここで見せる。
+    res.appendChild(emblem(born, 'lg'));
+    txt.appendChild(el('div', 't1', `${spOf(born).name}  ${rankLabel(spOf(born).rank)} が生まれた`));
+    txt.appendChild(el('div', 't2',
+      `${famOf(born).name}系 ・ 遺伝 +${born.gene}` + (UI.bornNew ? ' ・ 新種発見!' : '')));
   } else {
     const ph = el('div', 'emblem lg', '?');
     ph.style.setProperty('--fc', '#7b86a8');
     res.appendChild(ph);
-    const txt = el('div', 'txt');
-    txt.appendChild(el('div', 't1', '親を2匹えらぶ'));
+    txt.appendChild(el('div', 't1', picked.length === 1 ? 'あと1匹えらぶ' : '親を2匹えらぶ'));
     txt.appendChild(el('div', 't2', '同じランクどうしなら、ランクが1つ上がる'));
-    res.appendChild(txt);
   }
+  res.appendChild(txt);
   panel.appendChild(res);
   view.appendChild(panel);
 
@@ -588,11 +598,11 @@ function viewFuse(view) {
   go.addEventListener('click', () => {
     const r = doFuse(picked[0], picked[1]);
     UI.picks = [];
-    UI.open = r.child.uid;
+    UI.born = r.child.uid;
+    UI.bornNew = r.isNew;
     toast(`${spOf(r.child).name} が生まれた!${r.isNew ? ' — 新種発見' : ''}`);
     save();
-    UI.tab = 'ranch';
-    render();
+    render(); // 配合タブに留まる。続けて配合できるようにするため。
   });
   setAction(go);
 }
