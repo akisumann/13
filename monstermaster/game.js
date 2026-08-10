@@ -369,6 +369,17 @@ function emblem(m, size) {
   return n;
 }
 
+// 一覧は必ず取得順で並べる。強さ順にすると育成やレベルアップで行が入れ替わり、
+// 連打しているときに指の下でボタンがずれて誤タップの原因になる。
+function roster() { return S.monsters.slice().sort((a, b) => a.uid - b.uid); }
+
+// 連打する主要ボタンを画面下の固定バーへ置く
+function setAction(node) {
+  const bar = document.getElementById('action-bar');
+  bar.innerHTML = '';
+  if (node) bar.appendChild(node);
+}
+
 let toastTimer = null;
 function toast(msg) {
   const t = document.getElementById('toast');
@@ -459,8 +470,7 @@ function viewRanch(view) {
   view.appendChild(shop);
 
   const list = el('div', 'list');
-  const sorted = S.monsters.slice().sort((a, b) => powerOf(b) - powerOf(a));
-  for (const m of sorted) {
+  for (const m of roster()) {
     const open = UI.open === m.uid;
     list.appendChild(monRow(m, {
       selected: open,
@@ -525,43 +535,40 @@ function viewFuse(view) {
   }
   panel.appendChild(slots);
 
-  if (picked.length === 2) {
-    const pv = previewFusion(picked[0], picked[1]);
-    const res = el('div', 'result');
-    const fake = { sp: pv.species.id, level: 1, gene: pv.gene, uid: -1 };
-    res.appendChild(emblem(fake, 'lg'));
+  // プレビュー欄は常に描画する。2匹目を選んだ瞬間に生えてくると一覧が下にずれてしまうため。
+  const ready = picked.length === 2;
+  const pv = ready ? previewFusion(picked[0], picked[1]) : null;
+  const res = el('div', 'result');
+  if (ready) {
+    res.appendChild(emblem({ sp: pv.species.id, level: 1, gene: pv.gene, uid: -1 }, 'lg'));
     const txt = el('div', 'txt');
     txt.appendChild(el('div', 't1', `${pv.species.name}  ${rankLabel(pv.species.rank)}`));
     txt.appendChild(el('div', 't2',
       `${FAMILIES[pv.species.family].name}系 ・ 遺伝 +${pv.gene}` + (pv.surprise ? ' ・ まれに別の系統が出る' : '')));
     res.appendChild(txt);
-    panel.appendChild(res);
-
-    const go = el('button', 'btn primary', '配合する(親は2匹とも消える)');
-    go.addEventListener('click', () => {
-      const r = doFuse(picked[0], picked[1]);
-      UI.picks = [];
-      UI.open = r.child.uid;
-      toast(`${spOf(r.child).name} が生まれた!${r.isNew ? ' — 新種発見' : ''}`);
-      save();
-      UI.tab = 'ranch';
-      render();
-    });
-    panel.appendChild(go);
   } else {
-    panel.appendChild(el('p', 'hint',
-      '同じランクどうしを配合すると、ランクが1つ上がる。' +
-      'レベルの高い親ほど「遺伝」が子に多く乗り、代を重ねるほど強くなる。'));
+    const ph = el('div', 'emblem lg', '?');
+    ph.style.setProperty('--fc', '#7b86a8');
+    res.appendChild(ph);
+    const txt = el('div', 'txt');
+    txt.appendChild(el('div', 't1', '親を2匹えらぶ'));
+    txt.appendChild(el('div', 't2', '同じランクどうしなら、ランクが1つ上がる'));
+    res.appendChild(txt);
   }
+  panel.appendChild(res);
   view.appendChild(panel);
 
   if (S.monsters.length < 2) {
     view.appendChild(el('p', 'hint', 'モンスターが2匹以上いないと配合できない。探索かたまごで増やそう。'));
+    setAction(null);
     return;
   }
 
+  view.appendChild(el('p', 'hint',
+    'レベルの高い親ほど「遺伝」が子に多く乗り、代を重ねるほど強くなる。'));
+
   const list = el('div', 'list');
-  for (const m of S.monsters.slice().sort((a, b) => powerOf(b) - powerOf(a))) {
+  for (const m of roster()) {
     const idx = UI.picks.indexOf(m.uid);
     list.appendChild(monRow(m, {
       selected: idx >= 0,
@@ -575,6 +582,19 @@ function viewFuse(view) {
     }));
   }
   view.appendChild(list);
+
+  const go = el('button', 'btn primary', ready ? '配合する(親は2匹とも消える)' : '親を2匹えらぶ');
+  if (!ready) go.disabled = true;
+  go.addEventListener('click', () => {
+    const r = doFuse(picked[0], picked[1]);
+    UI.picks = [];
+    UI.open = r.child.uid;
+    toast(`${spOf(r.child).name} が生まれた!${r.isNew ? ' — 新種発見' : ''}`);
+    save();
+    UI.tab = 'ranch';
+    render();
+  });
+  setAction(go);
 }
 
 // --------------------------------------------- 探索
@@ -584,39 +604,74 @@ function viewExplore(view) {
   head.appendChild(el('span', 'note', `${S.exploreCount} 回`));
   view.appendChild(head);
 
-  const areas = el('div', 'areas');
+  // エリアは横スクロールのチップ1行にして、結果を画面内に収める
+  const chips = el('div', 'chips');
   for (const a of AREAS) {
     const ok = areaUnlocked(a, S.monsters);
-    const b = el('button', 'area' + (UI.area === a.id ? ' is-sel' : ''));
+    const b = el('button', 'chip' + (UI.area === a.id ? ' is-on' : ''));
     if (!ok) b.disabled = true;
-    const info = el('div');
-    info.appendChild(el('div', 'an', ok ? a.name : '？？？'));
-    info.appendChild(el('div', 'ad', ok
-      ? `${rankLabel(a.rank)}の野生 ・ ${a.gold[0]}〜${a.gold[1]} G`
-      : `ランク${a.rank - 1}以上のモンスターがいれば入れる`));
-    b.appendChild(info);
-    b.appendChild(el('span', 'lv', 'R' + a.rank));
-    b.addEventListener('click', () => { UI.area = a.id; UI.result = null; render(); });
-    areas.appendChild(b);
+    b.appendChild(el('span', null, ok ? a.name : '？？？'));
+    b.appendChild(el('span', 'r', 'R' + a.rank));
+    b.addEventListener('click', () => { UI.area = a.id; render(); });
+    chips.appendChild(b);
   }
-  view.appendChild(areas);
+  view.appendChild(chips);
 
-  const area = AREAS.find(a => a.id === UI.area) || AREAS[0];
-  const panel = el('div', 'panel');
-  panel.appendChild(el('h2', null, '出撃するモンスター'));
+  const area = AREAS.find(a => a.id === UI.area && areaUnlocked(a, S.monsters)) || AREAS[0];
+  UI.area = area.id;
+  view.appendChild(el('div', 'area-desc',
+    `${rankLabel(area.rank)}の野生 ・ ${area.gold[0]}〜${area.gold[1]} G ・ 勝つと${Math.round(CAPTURE_RATE * 100)}%で仲間になる`));
 
+  // 結果スロット(高さ固定・一覧より上)。中身が増減してもレイアウトが動かない。
+  const out = el('div', 'panel result-slot');
+  const r = UI.result;
+  const oh = el('div', 'head');
+  oh.appendChild(el('h2', null, !r ? '結果' : r.win ? '勝利' : '敗走'));
+  if (r) oh.appendChild(el('span', 'note', `${r.monName} vs ${spOf(r.wild).name}`));
+  out.appendChild(oh);
+
+  const log = el('div', 'log');
+  if (!r) {
+    log.appendChild(el('div', 'msg-dim', 'エリアと出撃するモンスターを選んで、下のボタンで送り出そう。'));
+  } else {
+    log.appendChild(el('div', r.win ? 'win' : 'lose',
+      r.win ? `${spOf(r.wild).name} を打ち倒した` : `${spOf(r.wild).name} に敗れて逃げ帰った`));
+    log.appendChild(el('div', null, `経験値 +${r.exp} ・ ${r.gold} G を獲得`));
+    if (r.levelUps > 0) log.appendChild(el('div', 'get', `レベルが ${r.levelUps} 上がった!`));
+    if (r.captured) {
+      log.appendChild(el('div', 'get',
+        `${spOf(r.captured).name} が仲間になった!${r.capturedIsNew ? '(新種)' : ''}`));
+    }
+    if (r.missedCapture) {
+      log.appendChild(el('div', null,
+        `${spOf(r.wild).name} はなついたが、牧場がいっぱいで連れ帰れなかった。`));
+    }
+    for (const line of r.log.slice(-8)) log.appendChild(el('div', null, line));
+  }
+  out.appendChild(log);
+  view.appendChild(out);
+
+  // 出撃するモンスター(取得順で固定)
   const sortie = S.monsters.find(m => m.uid === UI.sortie) || S.monsters[0];
   UI.sortie = sortie ? sortie.uid : null;
 
+  const panel = el('div', 'panel');
+  const ph = el('div', 'head');
+  ph.appendChild(el('h2', null, '出撃するモンスター'));
+  ph.appendChild(el('span', 'note', sortie ? spOf(sortie).name : ''));
+  panel.appendChild(ph);
+
   const list = el('div', 'list');
-  for (const m of S.monsters.slice().sort((a, b) => powerOf(b) - powerOf(a))) {
+  for (const m of roster()) {
     list.appendChild(monRow(m, {
       selected: m.uid === UI.sortie,
-      onClick: () => { UI.sortie = m.uid; UI.result = null; render(); },
+      onClick: () => { UI.sortie = m.uid; render(); },
     }));
   }
   panel.appendChild(list);
+  view.appendChild(panel);
 
+  // 連打するボタンは固定バーへ
   const go = el('button', 'btn primary', `${area.name} へ送り出す`);
   go.addEventListener('click', () => {
     const mon = S.monsters.find(m => m.uid === UI.sortie);
@@ -626,35 +681,7 @@ function viewExplore(view) {
     save();
     render();
   });
-  panel.appendChild(go);
-  view.appendChild(panel);
-
-  if (!UI.result) return;
-
-  const r = UI.result;
-  const out = el('div', 'panel');
-  const oh = el('div', 'head');
-  oh.appendChild(el('h2', null, r.win ? '勝利' : '敗走'));
-  oh.appendChild(el('span', 'note', `${r.monName} vs ${spOf(r.wild).name}`));
-  out.appendChild(oh);
-
-  const log = el('div', 'log');
-  const summary = el('div', r.win ? 'win' : 'lose',
-    r.win ? `${spOf(r.wild).name} を打ち倒した` : `${spOf(r.wild).name} に敗れて逃げ帰った`);
-  log.appendChild(summary);
-  log.appendChild(el('div', null, `経験値 +${r.exp} ・ ${r.gold} G を獲得`));
-  if (r.levelUps > 0) log.appendChild(el('div', 'get', `レベルが ${r.levelUps} 上がった!`));
-  if (r.captured) {
-    log.appendChild(el('div', 'get',
-      `${spOf(r.captured).name} が仲間になった!${r.capturedIsNew ? '(新種)' : ''}`));
-  }
-  if (r.missedCapture) {
-    log.appendChild(el('div', null,
-      `${spOf(r.wild).name} はなついたが、牧場がいっぱいで連れ帰れなかった。`));
-  }
-  for (const line of r.log.slice(-8)) log.appendChild(el('div', null, line));
-  out.appendChild(log);
-  view.appendChild(out);
+  setAction(go);
 }
 
 // --------------------------------------------- 図鑑
@@ -697,6 +724,7 @@ function viewDex(view) {
 function render() {
   const view = document.getElementById('view');
   view.innerHTML = '';
+  setAction(null);
   document.getElementById('hud-gold').textContent = String(S.gold);
   document.getElementById('hud-count').textContent = `${S.monsters.length}/${ROSTER_CAP}`;
 
