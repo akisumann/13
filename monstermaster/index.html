@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>モンスターマスター — 配合録</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header id="bar">
+    <div class="brand"><span class="mark">◈</span>モンスターマスター</div>
+    <div class="purse">
+      <span class="num" id="hud-gold">0</span><span class="unit">G</span>
+      <span class="num" id="hud-count">0</span><span class="unit">匹</span>
+    </div>
+  </header>
+
+  <main id="view" aria-live="polite"></main>
+
+  <nav id="tabs">
+    <button class="tab is-on" data-tab="ranch">牧場</button>
+    <button class="tab" data-tab="fuse">配合</button>
+    <button class="tab" data-tab="explore">探索</button>
+    <button class="tab" data-tab="dex">図鑑</button>
+  </nav>
+</div>
+<div id="toast" role="status"></div>
+<script src="game.js"></script>
+</body>
+</html>
