@@ -104,59 +104,47 @@ for (const [id, sk] of Object.entries(SKILLS)) {
   }
 }
 
-// 種族が本来よく持つスキル。配合で親から何も受け継がなかったとき、
-// および野生・たまごの個体はここから選ばれる。
-const INNATE_SKILLS = {
-  fire:  ['gouwan', 'kaishin', 'fukutsu'],
-  water: ['masen', 'kyushu', 'teppeki'],
-  grass: ['teppeki', 'dokuga', 'kyoku'],
-  rock:  ['kyoku', 'fukutsu', 'gouwan'],
-  // 風は受け流しが多いので、反撃が噛み合う
-  wind:  ['idaten', 'sensei', 'hangeki'],
-  dark:  ['meikyou', 'dokuga', 'kyushu'],
-  light: ['meikyou', 'kyoku', 'sensei'],
-};
-
 // 配合で親からスキルを受け継ぐ個数の割合
 const SKILL_INHERIT = [0.20, 0.40, 0.40]; // 0個 / 1個 / 2個
 
 // 4つめの文字列が成長係数(hp mp atk def int spd dex の順)。
-// 系統の得意不得意とランクから起こした値を、種族値としてそのまま持たせている。
-// 導出式のままにすると系統補正を少し触っただけでグレードが飛び、
-// バランス調整が階段状になってしまうため、ここで確定させておく。
+// 5つめが「種族が本来よく持つスキル」3つ。配合で親から何も受け継がなかったとき、
+// および野生・たまごの個体はここから1つ選ばれる。
+// 同じ系統でも種ごとに違えてあるので、ヒノコとヴォルケインでは覚えるものが変わる。
 const SPECIES = [
-  ['fire',  1, 'ヒノコ',       'EECFDEE'],
-  ['fire',  2, 'ボウフレア',   'DDBECDD'],
-  ['fire',  3, 'サラマンド',   'CCADBCC'],
-  ['fire',  4, 'イフリード',   'CBACABC'],
-  ['fire',  5, 'ヴォルケイン', 'AASBSAA'],
-  ['water', 1, 'シズク',       'DCEEDEE'],
-  ['water', 2, 'アクアム',     'CBDDCDD'],
-  ['water', 3, 'リヴァイト',   'BACCBCC'],
-  ['water', 4, 'セイレーヌ',   'ASBBACB'],
-  ['water', 5, 'ポセイドス',   'SSAASAA'],
-  ['grass', 1, 'フタバ',       'DDECDEE'],
-  ['grass', 2, 'ツタリング',   'CCEBCDD'],
-  ['grass', 3, 'ドリアード',   'BBDABCC'],
-  ['grass', 4, 'ユグドラ',     'AACSABB'],
-  ['grass', 5, 'ガイアルド',   'SSBSSAA'],
-  ['rock',  1, 'コイシ',       'CFDCFFE'],
-  ['rock',  2, 'ロックル',     'BFCBEEE'],
-  ['rock',  3, 'ゴーレット',   'AEBADDD'],
-  ['rock',  4, 'グラナイト',   'SDASCCC'],
-  ['rock',  5, 'アダマス',     'SCSSBBB'],
-  ['wind',  1, 'ソヨカ',       'EEEEEBC'],
-  ['wind',  2, 'ウィンディ',   'EDDEDAB'],
-  ['wind',  3, 'シルフィード', 'DCCDCSA'],
-  ['wind',  4, 'テンペスト',   'CBBCBSS'],
-  ['wind',  5, 'ガルーダ',     'BAABASS'],
-  ['dark',  3, 'シャドウル',   'CBBCACC'],
-  ['dark',  4, 'ノクターン',   'CAACABB'],
-  ['dark',  5, 'ニュクス',     'ASSASAA'],
-  ['light', 5, 'ルクスノヴァ', 'SSSSSSS'], // 唯一、全ステータスが最高位S
-].map(([family, rank, name, grades]) => ({
+  ['fire',  1, 'ヒノコ',       'EECFDEE', 'gouwan kaishin idaten'],
+  ['fire',  2, 'ボウフレア',   'DDBECDD', 'gouwan kaishin fukutsu'],
+  ['fire',  3, 'サラマンド',   'CCADBCC', 'gouwan fukutsu dokuga'],
+  ['fire',  4, 'イフリード',   'CBACABC', 'gouwan kaishin meikyou'],
+  ['fire',  5, 'ヴォルケイン', 'AASBSAA', 'gouwan fukutsu kyoku'],
+  ['water', 1, 'シズク',       'DCEEDEE', 'masen kyushu teppeki'],
+  ['water', 2, 'アクアム',     'CBDDCDD', 'masen teppeki kyoku'],
+  ['water', 3, 'リヴァイト',   'BACCBCC', 'masen kyushu meikyou'],
+  ['water', 4, 'セイレーヌ',   'ASBBACB', 'masen meikyou sensei'],
+  ['water', 5, 'ポセイドス',   'SSAASAA', 'masen kyushu kyoku'],
+  ['grass', 1, 'フタバ',       'DDECDEE', 'teppeki kyoku kyushu'],
+  ['grass', 2, 'ツタリング',   'CCEBCDD', 'teppeki dokuga hangeki'],
+  ['grass', 3, 'ドリアード',   'BBDABCC', 'teppeki dokuga meikyou'],
+  ['grass', 4, 'ユグドラ',     'AACSABB', 'teppeki kyoku kyushu'],
+  ['grass', 5, 'ガイアルド',   'SSBSSAA', 'teppeki kyoku dokuga'],
+  ['rock',  1, 'コイシ',       'CFDCFFE', 'kyoku teppeki fukutsu'],
+  ['rock',  2, 'ロックル',     'BFCBEEE', 'kyoku fukutsu gouwan'],
+  ['rock',  3, 'ゴーレット',   'AEBADDD', 'kyoku teppeki hangeki'],
+  ['rock',  4, 'グラナイト',   'SDASCCC', 'kyoku gouwan fukutsu'],
+  ['rock',  5, 'アダマス',     'SCSSBBB', 'kyoku teppeki gouwan'],
+  ['wind',  1, 'ソヨカ',       'EEEEEBC', 'idaten sensei kaishin'],
+  ['wind',  2, 'ウィンディ',   'EDDEDAB', 'idaten hangeki kaishin'],
+  ['wind',  3, 'シルフィード', 'DCCDCSA', 'idaten sensei hangeki'],
+  ['wind',  4, 'テンペスト',   'CBBCBSS', 'idaten kaishin gouwan'],
+  ['wind',  5, 'ガルーダ',     'BAABASS', 'idaten sensei gouwan'],
+  ['dark',  3, 'シャドウル',   'CBBCACC', 'meikyou dokuga kyushu'],
+  ['dark',  4, 'ノクターン',   'CAACABB', 'meikyou kyushu sensei'],
+  ['dark',  5, 'ニュクス',     'ASSASAA', 'meikyou dokuga kaishin'],
+  ['light', 5, 'ルクスノヴァ', 'SSSSSSS', 'meikyou kyoku sensei'], // 唯一、全ステータスが最高位S
+].map(([family, rank, name, grades, innate]) => ({
   id: family + rank, family, rank, name,
   growth: STATS.reduce((o, st, i) => (o[st.key] = grades[i], o), {}),
+  innate: innate.split(' '),
 }));
 
 // =====================================================================
@@ -234,7 +222,7 @@ function makeMonster(speciesId, opts) {
     exp: 0,
     gene: o.gene || 0,
     // 指定がなければ、その種族がよく持つスキルを1つ覚えて生まれる
-    skills: o.skills || [pick(INNATE_SKILLS[sp.family])],
+    skills: o.skills || [pick(sp.innate)],
   };
 }
 
@@ -274,7 +262,7 @@ function inheritSkills(a, b, childSpecies) {
   got = got.filter(Boolean);
 
   // 何も受け継げなかった場合は種族本来のスキルを1つ
-  if (!got.length) got = [pick(INNATE_SKILLS[childSpecies.family])];
+  if (!got.length) got = [pick(childSpecies.innate)];
   return [...new Set(got)];
 }
 
@@ -591,7 +579,7 @@ function load() {
     // スキル導入前のセーブデータには、種族本来のスキルを1つ持たせる
     for (const m of d.monsters) {
       m.skills = (m.skills || []).filter(id => SKILLS[id]);
-      if (!m.skills.length) m.skills = [pick(INNATE_SKILLS[speciesById(m.sp).family])];
+      if (!m.skills.length) m.skills = [pick(speciesById(m.sp).innate)];
     }
     return {
       gold: d.gold || 0,
@@ -1093,6 +1081,10 @@ function viewDex(view) {
       cell.appendChild(em);
       cell.appendChild(el('div', 'dn', known ? s.name : '？？？'));
       cell.appendChild(el('div', 'dr', rankLabel(s.rank)));
+      if (known) {
+        // その種が本来よく持つスキル。配合先を決める材料になる。
+        cell.appendChild(el('div', 'ds', s.innate.map(id => SKILLS[id].name).join('・')));
+      }
       grid.appendChild(cell);
     }
     sec.appendChild(grid);
@@ -1133,7 +1125,8 @@ function viewDex(view) {
   skl.appendChild(skul);
   skl.appendChild(el('p', 'hint',
     'スキルの合計値はレベルの半分。1つに絞れば高レベルになり、2つ持つと分け合う。' +
-    '配合では親から0〜2個ランダムに受け継ぎ、何も継げなかったときは種族本来のスキルを覚える。'));
+    '配合では親から0〜2個ランダムに受け継ぎ、何も継げなかったときは種族本来のスキルを覚える。' +
+    '種族本来のスキルは上の図鑑に、種ごとに3つずつ書いてある。'))
   view.appendChild(skl);
 }
 

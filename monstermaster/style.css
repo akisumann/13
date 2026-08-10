@@ -520,6 +520,12 @@ button:focus-visible, .mon:focus-visible {
 }
 .dex-cell .dn { font-size: 11.5px; font-weight: 600; line-height: 1.25; }
 .dex-cell .dr { font-family: var(--mono); font-size: 10px; color: var(--gold); }
+.dex-cell .ds {
+  font-size: 9.5px;
+  line-height: 1.35;
+  color: var(--muted);
+  word-break: keep-all;
+}
 .dex-cell.unknown { opacity: 0.45; }
 .dex-cell.unknown .dn { color: var(--muted); font-weight: 400; }
 .dex-cell.unknown .emblem {
