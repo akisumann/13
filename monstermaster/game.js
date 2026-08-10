@@ -53,6 +53,36 @@ const SPECIES = [
   ['light', 5, 'ルクスノヴァ'],
 ].map(([family, rank, name]) => ({ id: family + rank, family, rank, name }));
 
+// =====================================================================
+// 成長係数(種族値)
+// レベルアップでどれだけ伸びやすいかを F〜S の7段階で表す。
+// 種ごとに固定で、遺伝や育て方では一切変わらない。
+// 系統の得意不得意 + ランク補正で決まるため、低ランクの種は全体的に低くなる。
+// =====================================================================
+
+const GRADES = ['F', 'E', 'D', 'C', 'B', 'A', 'S'];
+
+// 1レベルあたりの伸びの倍率
+const GRADE_MUL = { F: 0.45, E: 0.65, D: 0.85, C: 1.05, B: 1.3, A: 1.6, S: 1.95 };
+
+// ランクが低いほど全体的に下へずらす
+const RANK_SHIFT = { 1: -0.24, 2: -0.12, 3: 0, 4: 0.12, 5: 0.24 };
+
+// 各しきい値「未満」なら F,E,D,C,B,A。すべて超えたら S。
+const GRADE_CUTS = [0.72, 0.85, 0.97, 1.09, 1.21, 1.35];
+
+function gradeFor(family, rank, statKey) {
+  const score = FAMILIES[family].mod[statKey] + RANK_SHIFT[rank];
+  let i = 0;
+  while (i < GRADE_CUTS.length && score >= GRADE_CUTS[i]) i++;
+  return GRADES[i];
+}
+
+for (const sp of SPECIES) {
+  sp.growth = {};
+  for (const st of STATS) sp.growth[st.key] = gradeFor(sp.family, sp.rank, st.key);
+}
+
 // 異系統どうしの配合表(闇・光は特殊ルールで処理する)
 const FUSION_TABLE = {
   'fire+water': 'wind',  'fire+grass': 'fire',  'fire+rock': 'rock',  'fire+wind': 'fire',
@@ -132,9 +162,12 @@ function statsOf(m) {
   for (const st of STATS) {
     // HPとMPは伸び幅が大きい「量」のステータスなので、成長分を倍にする
     const pool = st.key === 'hp' || st.key === 'mp';
+    // レベルぶんの伸びだけが成長係数(種族値)の影響を受ける。
+    // 遺伝は係数と無関係にそのまま加算される。
+    const growth = GRADE_MUL[sp.growth[st.key]];
     out[st.key] = Math.round(st.base(r) * mod[st.key])
       + m.gene * (pool ? 2 : 1)
-      + lv * (pool ? 3 : 1);
+      + Math.round(lv * growth * (pool ? 3 : 1));
   }
   return out;
 }
@@ -463,6 +496,24 @@ function monRow(m, opts) {
   return row;
 }
 
+// その種がいちばん伸びるステータスを2つ、配合の判断材料として見せる
+function topGrowth(sp, n) {
+  return STATS.slice()
+    .sort((a, b) => GRADES.indexOf(sp.growth[b.key]) - GRADES.indexOf(sp.growth[a.key]))
+    .slice(0, n);
+}
+
+function growthLine(sp) {
+  const line = el('div', 't3');
+  line.appendChild(el('span', null, '成長 '));
+  topGrowth(sp, 2).forEach((st, i) => {
+    if (i) line.appendChild(el('span', null, ' ・ '));
+    line.appendChild(el('span', null, st.label));
+    line.appendChild(el('span', 'g g-' + sp.growth[st.key], sp.growth[st.key]));
+  });
+  return line;
+}
+
 function statBlock(m) {
   const s = statsOf(m);
   const f = famOf(m);
@@ -470,9 +521,11 @@ function statBlock(m) {
   for (const st of STATS) {
     const v = s[st.key];
     const live = LIVE_STATS.includes(st.key);
+    const g = spOf(m).growth[st.key];
     const r = el('div', 'stat-row' + (live ? '' : ' is-idle'));
     r.appendChild(el('span', 'k', st.label));
     r.appendChild(el('span', 'v', String(v)));
+    r.appendChild(el('span', 'g g-' + g, g));
     const meter = el('div', 'meter');
     const fill = el('i');
     fill.style.width = clamp(v / st.max * 100, 4, 100) + '%';
@@ -539,6 +592,7 @@ function viewRanch(view) {
         ? `Lv.${m.level}(上限)。これ以上は配合で上のランクへ。`
         : `Lv.${m.level} ・ 次のレベルまで ${expToNext(m) - m.exp} exp ・ 上限 Lv.${cap}`));
     d.appendChild(el('p', 'hint',
+      '右のF〜Sは成長係数。レベルアップでの伸びやすさを表す種ごとの固定値で、遺伝や育て方では変わらない。' +
       `うすい行(${STATS.filter(st => !LIVE_STATS.includes(st.key)).map(st => st.label).join('・')})は、まだ戦闘に影響しない。`));
     if (S.monsters.length > 1) {
       const rel = el('button', 'btn ghost', 'にがす');
@@ -600,18 +654,21 @@ function viewFuse(view) {
     txt.appendChild(el('div', 't1', `${pv.species.name}  ${rankLabel(pv.species.rank)}`));
     txt.appendChild(el('div', 't2',
       `${FAMILIES[pv.species.family].name}系 ・ 遺伝 +${pv.gene}` + (pv.surprise ? ' ・ まれに別の系統が出る' : '')));
+    txt.appendChild(growthLine(pv.species));
   } else if (born) {
     // 配合直後。タブを移動しない代わりに、生まれた子をここで見せる。
     res.appendChild(emblem(born, 'lg'));
     txt.appendChild(el('div', 't1', `${spOf(born).name}  ${rankLabel(spOf(born).rank)} が生まれた`));
     txt.appendChild(el('div', 't2',
       `${famOf(born).name}系 ・ 遺伝 +${born.gene}` + (UI.bornNew ? ' ・ 新種発見!' : '')));
+    txt.appendChild(growthLine(spOf(born)));
   } else {
     const ph = el('div', 'emblem lg', '?');
     ph.style.setProperty('--fc', '#7b86a8');
     res.appendChild(ph);
     txt.appendChild(el('div', 't1', picked.length === 1 ? 'あと1匹えらぶ' : '親を2匹えらぶ'));
     txt.appendChild(el('div', 't2', '同じランクどうしなら、ランクが1つ上がる'));
+    txt.appendChild(el('div', 't3', '成長係数は種ごとに固定。遺伝では変わらない。'));
   }
   res.appendChild(txt);
   panel.appendChild(res);
