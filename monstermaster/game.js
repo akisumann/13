@@ -628,11 +628,12 @@ function combatant(m) {
     const def = SKILLS[id];
     if (def.stat) s[def.stat] = Math.round(s[def.stat] * (1 + def.per * lv));
   }
-  return { name: nameOf(m), line: nat.line, ...s, maxHp: s.hp, maxMp: s.mp, sk, poison: 0 };
+  return { name: nameOf(m), sp: m.sp, line: nat.line, ...s,
+           maxHp: s.hp, maxMp: s.mp, sk, poison: 0 };
 }
 
 // 1回の攻撃。7ステータスとスキルがすべて常時効果として噛み合う。
-function strike(atk, dfn, log) {
+function strike(atk, dfn, log, ev) {
   // 不屈: 追い詰められているあいだ こうげきが上がる
   let power = atk.atk;
   if (atk.sk.fukutsu && atk.hp <= atk.maxHp / 4) power *= 1 + atk.sk.fukutsu * SKILLS.fukutsu.k;
@@ -691,7 +692,13 @@ function strike(atk, dfn, log) {
     note += ' [毒]';
   }
 
-  log.push(`${atk.name} は ${atk.line} → ${dmg} ダメージ${note}(${dfn.name} 残り ${Math.max(0, dfn.hp)})`);
+  const line = `${atk.name} は ${atk.line} → ${dmg} ダメージ${note}(${dfn.name} 残り ${Math.max(0, dfn.hp)})`;
+  log.push(line);
+  // 再生用の記録。数値は上でもう決まっていて、ここでは書き写すだけ。
+  if (ev) ev.push({
+    k: 'hit', from: [atk.side, atk.i], to: [dfn.side, dfn.i],
+    dmg, hp: Math.max(0, dfn.hp), mp: Math.max(0, dfn.mp), crit, parry: parried, text: line,
+  });
 }
 
 // モンスターでも、すでに組み立てた戦闘用の駒でも受け取る。
@@ -703,7 +710,10 @@ function asSide(x) {
 function battle(a, b) {
   const A = asSide(a);
   const B = asSide(b);
+  A.forEach((c, i) => { c.side = 'a'; c.i = i; });
+  B.forEach((c, i) => { c.side = 'b'; c.i = i; });
   const log = [];
+  const ev = [];
   const living = (side) => side.filter(c => c.hp > 0);
 
   for (let round = 0; round < COMBAT.turnCap && living(A).length && living(B).length; round++) {
@@ -728,13 +738,23 @@ function battle(a, b) {
       if (o.c.poison) {
         const tick = Math.max(1, Math.round(o.c.maxHp * o.c.poison * SKILLS.dokuga.k));
         o.c.hp -= tick;
-        log.push(`${o.c.name} は毒で ${tick} のダメージ(残り ${Math.max(0, o.c.hp)})`);
-        if (o.c.hp <= 0) { log.push(`${o.c.name} は倒れた`); continue; }
+        const pl = `${o.c.name} は毒で ${tick} のダメージ(残り ${Math.max(0, o.c.hp)})`;
+        log.push(pl);
+        ev.push({ k: 'poison', to: [o.c.side, o.c.i], dmg: tick, hp: Math.max(0, o.c.hp), text: pl });
+        if (o.c.hp <= 0) {
+          log.push(`${o.c.name} は倒れた`);
+          ev.push({ k: 'down', to: [o.c.side, o.c.i], text: `${o.c.name} は倒れた` });
+          continue;
+        }
       }
 
       const target = pick(foes);
-      strike(o.c, target, log);
-      if (target.hp <= 0) { log.push(`${target.name} は倒れた`); continue; }
+      strike(o.c, target, log, ev);
+      if (target.hp <= 0) {
+        log.push(`${target.name} は倒れた`);
+        ev.push({ k: 'down', to: [target.side, target.i], text: `${target.name} は倒れた` });
+        continue;
+      }
 
       // 追撃: 狙った相手よりすばやさが上回っているほど出やすい
       const spdTotal = o.c.spd + target.spd;
@@ -742,8 +762,11 @@ function battle(a, b) {
         0, COMBAT.spdExtraMax);
       if (o.c.sk.sensei) extra = Math.min(COMBAT.spdExtraMax, extra + o.c.sk.sensei * SKILLS.sensei.k);
       if (Math.random() < extra) {
-        strike(o.c, target, log);
-        if (target.hp <= 0) log.push(`${target.name} は倒れた`);
+        strike(o.c, target, log, ev);
+        if (target.hp <= 0) {
+          log.push(`${target.name} は倒れた`);
+          ev.push({ k: 'down', to: [target.side, target.i], text: `${target.name} は倒れた` });
+        }
       }
     }
   }
@@ -753,9 +776,9 @@ function battle(a, b) {
   const aDown = !living(A).length, bDown = !living(B).length;
   if (!aDown && !bDown) {
     log.push('決着がつかず、消耗の少ないほうの判定勝ち');
-    return { win: hpLeft(A) / hpMax(A) >= hpLeft(B) / hpMax(B), log, downed: A.filter(c => c.hp <= 0).length, A, B };
+    return { win: hpLeft(A) / hpMax(A) >= hpLeft(B) / hpMax(B), log, ev, downed: A.filter(c => c.hp <= 0).length, A, B };
   }
-  return { win: bDown && !aDown, log, downed: A.filter(c => c.hp <= 0).length, A, B };
+  return { win: bDown && !aDown, log, ev, downed: A.filter(c => c.hp <= 0).length, A, B };
 }
 
 function wildFor(area) {
@@ -776,6 +799,12 @@ function explore(party, area, canCapture) {
     wilds,
     win: res.win,
     log: res.log,
+    ev: res.ev,
+    // 再生用。始まりのHPが要るので、駒の作りたてを写しておく。
+    cast: {
+      a: res.A.map(c => ({ name: c.name, sp: c.sp, maxHp: c.maxHp })),
+      b: res.B.map(c => ({ name: c.name, sp: c.sp, maxHp: c.maxHp })),
+    },
     downed: res.downed,
     exp: 0, gold: 0, levelUps: 0, captured: null, missedCapture: false,
   };
@@ -993,6 +1022,7 @@ let UI = {
   eggFamily: null, use: {},
   pen: {}, penNodes: null, penCaption: null, penTerrain: null, penGroundKey: null, penGroundURL: null,
   race: null, raceNodes: null, raceNote: null,
+  show: null, showNodes: null, showNote: null,
   born: null, bornNew: false, // 直前に配合で生まれた子(配合タブに留まったまま結果を見せる)
   order: null,                // 表示順(uidの配列)。null なら次の描画で強さ順に並べ直す
 };
@@ -1017,6 +1047,7 @@ function newState() {
     barn: 0,       // 牧場を広げた回数
     // にわの敷地・地形・器具(見た目だけ)。owned は買ってある敷地。
     pen: { ground: 'grass', fixtures: [], terrain: [], owned: [] },
+    watch: true,   // 探索で戦いを見せるか。連打したいときは切る。
   };
 }
 
@@ -1074,6 +1105,7 @@ function load() {
           .filter((id, i, a) => TERRAINS[id] && a.indexOf(id) === i).slice(0, TERRAIN_MAX),
         owned: (d.pen && Array.isArray(d.pen.owned)) ? d.pen.owned.filter(id => GROUNDS.some(g => g.id === id)) : [],
       },
+      watch: d.watch !== false,
     };
   } catch (e) { return null; }
 }
@@ -2519,6 +2551,128 @@ function viewFuse(view) {
   setAction(go);
 }
 
+// =====================================================================
+// 戦いを見せる
+//
+// 勝敗も数値も battle() でもう決まっている。ここでやるのは、その記録を
+// 順に再生するだけ。だから見せ方をどう変えても釣り合いは動かない。
+//
+// 動きはにわと同じ、のそのそした間合い。素早い殴り合いにすると、
+// 常時効果だけで組んだこの戦闘の「じわじわ削れる」感じと合わない。
+// =====================================================================
+
+const SHOW = {
+  tickMs: 780,      // 1手ごとの間
+  lungeMs: 420,     // 寄っていって戻るまで
+};
+
+function showStart(cast, ev) {
+  UI.show = {
+    cast,
+    ev: ev || [],
+    at: 0,
+    hp: { a: cast.a.map(c => c.maxHp), b: cast.b.map(c => c.maxHp) },
+    down: { a: [], b: [] },
+    note: '',
+    over: !(ev && ev.length),
+  };
+}
+
+// 1手ぶん進める。UI側の数字を、記録に書いてある通りに合わせるだけ。
+function showStep() {
+  const v = UI.show;
+  if (!v || v.over) return null;
+  const e = v.ev[v.at++];
+  if (!e) { v.over = true; return null; }
+  if (e.k === 'hit' || e.k === 'poison') {
+    const [sd, i] = e.to;
+    v.hp[sd][i] = e.hp;
+  } else if (e.k === 'down') {
+    const [sd, i] = e.to;
+    v.hp[sd][i] = 0;
+    if (!v.down[sd].includes(i)) v.down[sd].push(i);
+  }
+  v.note = e.text;
+  if (v.at >= v.ev.length) v.over = true;
+  return e;
+}
+
+function showFinish() {
+  const v = UI.show;
+  if (!v) return;
+  while (!v.over) showStep();
+}
+
+// 舞台。左が手持ち、右が相手。
+function showStage(onSkip) {
+  const v = UI.show;
+  const stage = el('div', 'stage');
+  UI.showNodes = { a: [], b: [] };
+
+  for (const sd of ['a', 'b']) {
+    const col = el('div', 'side side-' + sd);
+    v.cast[sd].forEach((c, i) => {
+      const unit = el('div', 'fighter');
+      unit.appendChild(emblem({ sp: c.sp }, 'sm'));
+      const bar = el('div', 'hpbar');
+      const fill = el('i');
+      bar.appendChild(fill);
+      unit.appendChild(bar);
+      unit.appendChild(el('div', 'fname', c.name));
+      UI.showNodes[sd][i] = { unit, fill };
+      col.appendChild(unit);
+    });
+    stage.appendChild(col);
+  }
+  showPaint();
+
+  const cap = el('div', 'stage-note', v.note || 'にらみ合っている');
+  UI.showNote = cap;
+
+  const wrap = el('div', 'stage-wrap');
+  wrap.appendChild(stage);
+  wrap.appendChild(cap);
+  // 飛ばすボタンは下の固定バーへ。枠に入れると溢れるうえ、
+  // 連打しているときに指を動かさずに済む。
+  if (!v.over && onSkip) {
+    const skip = el('button', 'btn primary', '最後まで飛ばす');
+    skip.addEventListener('click', () => { showFinish(); onSkip(); });
+    setAction(skip);
+  }
+  return wrap;
+}
+
+// 画面の数字を、いまの状態に合わせる
+function showPaint() {
+  const v = UI.show;
+  if (!v || !UI.showNodes) return;
+  for (const sd of ['a', 'b']) {
+    v.cast[sd].forEach((c, i) => {
+      const n = UI.showNodes[sd][i];
+      if (!n) return;
+      n.fill.style.setProperty('--w', clamp(v.hp[sd][i] / c.maxHp * 100, 0, 100) + '%');
+      n.unit.classList.toggle('is-down', v.down[sd].includes(i));
+    });
+  }
+  if (UI.showNote) UI.showNote.textContent = v.note || 'にらみ合っている';
+}
+
+// 殴った側が寄っていって戻る。のそのそ。
+function showLunge(e) {
+  if (!UI.showNodes || !e || e.k !== 'hit') return;
+  const [sd, i] = e.from;
+  const n = UI.showNodes[sd][i];
+  if (!n) return;
+  n.unit.classList.add('is-lunge');
+  const [ts, ti] = e.to;
+  const t = UI.showNodes[ts][ti];
+  if (t) t.unit.classList.add('is-hit');
+  if (typeof setTimeout !== 'undefined') setTimeout(() => {
+    n.unit.classList.remove('is-lunge');
+    if (t) t.unit.classList.remove('is-hit');
+  }, SHOW.lungeMs);
+}
+
 // --------------------------------------------- 探索
 function viewExplore(view) {
   const head = el('div', 'head');
@@ -2545,13 +2699,38 @@ function viewExplore(view) {
     `${rankLabel(area.rank)}の野生 ・ ${area.gold[0]}〜${area.gold[1]} G ・ 勝つと${Math.round(CAPTURE_RATE * 100)}%で仲間になる`));
   view.appendChild(el('p', 'lore', area.lore));
 
+  // 戦いを見せるかどうか。見せると1回に十数秒かかるので、
+  // 連打で稼ぎたいときは切れるようにしてある。
+  const watch = el('button', 'toggle' + (S.watch ? ' is-on' : ''));
+  watch.appendChild(el('span', 'tg-box', S.watch ? '■' : '□'));
+  watch.appendChild(el('span', null, '戦いを見せる'));
+  watch.appendChild(el('span', 'tg-note', S.watch ? '1回に十数秒' : '結果だけ出る'));
+  watch.addEventListener('click', () => {
+    S.watch = !S.watch;
+    if (!S.watch && UI.show) { showFinish(); UI.show = null; }
+    save(); render();
+  });
+  view.appendChild(watch);
+
   // 結果スロット(高さ固定・一覧より上)。中身が増減してもレイアウトが動かない。
-  const out = el('div', 'panel result-slot');
   const r = UI.result;
+  const showing = UI.show && !UI.show.over;
+  // 戦っているあいだは舞台のぶん背が高い。送り出すボタンは下の固定バーに
+  // 居るので、ここの高さが変わってもタップ位置はずれない。
+  const out = el('div', 'panel ' + (showing ? 'stage-slot' : 'result-slot'));
   const oh = el('div', 'head');
-  oh.appendChild(el('h2', null, !r ? '結果' : r.win ? '勝利' : '敗走'));
+  oh.appendChild(el('h2', null, !r ? '結果' : showing ? '戦っている' : r.win ? '勝利' : '敗走'));
   if (r) oh.appendChild(el('span', 'note', r.wilds.map(w => spOf(w).name).join('・')));
   out.appendChild(oh);
+
+  // 戦っているあいだは舞台を出す。終わったらいつもの結果に戻る。
+  if (showing) {
+    out.appendChild(showStage(() => render()));
+    view.appendChild(out);
+    view.appendChild(el('p', 'hint',
+      '勝敗はもう決まっている。飛ばしても結果は変わらない。'));
+    return;
+  }
 
   const log = el('div', 'log');
   if (!r) {
@@ -2615,6 +2794,8 @@ function viewExplore(view) {
     const team = UI.party.map(u => S.monsters.find(m => m.uid === u)).filter(Boolean);
     if (!team.length) return;
     UI.result = doExplore(team, area);
+    if (S.watch) showStart(UI.result.cast, UI.result.ev);
+    else UI.show = null;
     save();
     render();
   });
@@ -2879,6 +3060,15 @@ function init() {
       if (UI.race.over !== wasOver) render();   // 終わったら順位を出すため描き直す
     }, RACE.tickMs);
     if (rt && typeof rt.unref === 'function') rt.unref();
+
+    const st = setInterval(() => {
+      if (!UI.show || UI.show.over || !UI.showNodes) return;
+      const e = showStep();
+      showLunge(e);
+      showPaint();
+      if (UI.show.over) render();   // 終わったら結果に切り替える
+    }, SHOW.tickMs);
+    if (st && typeof st.unref === 'function') st.unref();
 
     const t = setInterval(penStep, PEN.tickMs);
     // Node で読み込んだときに、この時計だけでプロセスが終わらなくなるのを防ぐ

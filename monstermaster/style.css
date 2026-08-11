@@ -497,6 +497,8 @@ button:focus-visible, .mon:focus-visible {
 
 /* 結果は高さを固定し、中身が増えても下のレイアウトを動かさない */
 .result-slot { height: 208px; }
+/* 戦いを見せているあいだは、そのぶん背を高くする */
+.stage-slot { height: 268px; }
 .result-slot .log { flex: 1 1 auto; max-height: none; }
 
 .log {
@@ -883,3 +885,87 @@ button:focus-visible, .mon:focus-visible {
 .lane-tag .nm { color: var(--text); font-weight: 600; }
 .lane-tag .pl { color: var(--gold); font-family: var(--mono); font-weight: 700; }
 @media (prefers-reduced-motion: reduce) { .runner { transition: none; } }
+
+/* ===== 戦いの舞台 ===== */
+.stage-wrap { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; min-height: 0; }
+.stage {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.stage .side { display: flex; flex-direction: column; gap: 8px; flex: 1 1 0; min-width: 0; }
+.stage .side-b { align-items: flex-end; }
+.fighter {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas: "em bar" "em nm";
+  align-items: center;
+  gap: 1px 7px;
+  /* のそのそ。素早く動かない。 */
+  transition: transform .4s ease-in-out, opacity .4s;
+}
+.side-b .fighter { grid-template-columns: 1fr auto; grid-template-areas: "bar em" "nm em"; }
+.fighter .emblem { grid-area: em; }
+.fighter .hpbar { grid-area: bar; }
+.fighter .fname {
+  grid-area: nm;
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.side-b .fighter .fname { text-align: right; }
+.hpbar {
+  height: 5px;
+  min-width: 34px;
+  background: var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.hpbar i {
+  display: block;
+  height: 100%;
+  width: var(--w, 100%);
+  background: #6bd39a;
+  transition: width .45s ease-out;
+}
+.fighter.is-lunge { transform: translateX(14px); }
+.side-b .fighter.is-lunge { transform: translateX(-14px); }
+.fighter.is-hit { transform: translateX(-4px); }
+.side-b .fighter.is-hit { transform: translateX(4px); }
+.fighter.is-down { opacity: 0.3; transform: translateY(4px) scaleY(0.8); }
+.fighter.is-down .hpbar i { background: var(--danger); }
+.stage-note {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+  min-height: 2.6em;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fighter, .hpbar i { transition: none; }
+}
+
+/* 入り切りの切り替え */
+.toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 11px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: left;
+  width: 100%;
+}
+.toggle.is-on { color: var(--text); border-color: var(--line-hi); }
+.toggle .tg-box { font-family: var(--mono); color: var(--muted); }
+.toggle.is-on .tg-box { color: var(--accent); }
+.toggle .tg-note { margin-left: auto; font-size: 11.5px; color: var(--muted); }
