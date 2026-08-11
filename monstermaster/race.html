@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>かけっこ — 単体</title>
+<style>
+/* かけっこだけを動かす見本。ゲーム本体の style.css も game.js も読まない。 */
+:root {
+  --ground: #080b14; --panel: #131a2c; --line: #2a3552;
+  --text: #e4e8f6; --muted: #7b86a8; --gold: #e8c05a; --danger: #f2607a;
+  --mono: ui-monospace, Menlo, "Roboto Mono", monospace;
+  --sans: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 16px; background: var(--ground); color: var(--text);
+  font-family: var(--sans); font-size: 14px; line-height: 1.6;
+}
+main { max-width: 560px; margin: 0 auto; }
+h1 { font-size: 16px; margin: 0 0 2px; letter-spacing: .08em; }
+.sub { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.head h2 { font-size: 13px; margin: 0; letter-spacing: .06em; }
+.note { color: var(--muted); font-size: 12px; }
+
+.legs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-bottom: 10px; }
+.leg {
+  border: 1px solid var(--line); border-left: 3px solid var(--lc, var(--line));
+  border-radius: 6px; padding: 4px 5px; display: flex; flex-direction: column; gap: 1px;
+}
+.leg .ln { font-size: 11px; font-weight: 700; }
+.leg .lg { color: #6bd39a; font-size: 9.5px; }
+.leg .lb { color: var(--danger); font-size: 9.5px; }
+
+.track { display: flex; flex-direction: column; gap: 6px; --legbg: transparent 0%, transparent 100%; }
+.lane {
+  position: relative; height: 34px; border: 1px solid var(--line); border-radius: 6px;
+  border-right: 2px dashed var(--gold);   /* 右端がゴール */
+  background-image: linear-gradient(90deg, var(--legbg)); overflow: hidden;
+}
+.runner {
+  position: absolute; top: 50%; width: 26px; height: 26px;
+  /* 右端がゴール。走者のぶんだけ内側で止める。 */
+  left: calc(var(--rx, 0%) * 0.88);
+  transform: translate(0, -50%);
+  transition: left .3s linear;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; font-size: 13px; font-weight: 700; color: #0b0e18;
+}
+.runner.is-done { filter: saturate(.5); }
+.lane-tag {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  display: flex; gap: 6px; align-items: baseline; font-size: 10.5px; color: var(--muted);
+}
+.lane-tag .nm { color: var(--text); font-weight: 600; }
+.lane-tag .pl { color: var(--gold); font-family: var(--mono); font-weight: 700; }
+
+button {
+  margin-top: 12px; width: 100%; padding: 10px; border-radius: 8px;
+  border: 1px solid var(--line); background: transparent; color: var(--text);
+  font-family: inherit; font-size: 13px; cursor: pointer;
+}
+button:disabled { opacity: .45; cursor: default; }
+.tally { margin-top: 12px; font-size: 11.5px; color: var(--muted); font-family: var(--mono); }
+@media (prefers-reduced-motion: reduce) { .runner { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>かけっこ</h1>
+  <p class="sub">race.js だけで動いている見本。走者はこの下の RUNNERS を書き換えれば入れ替わる。</p>
+  <div class="panel">
+    <div class="head"><h2>走路</h2><span class="note" id="note">よーい</span></div>
+    <div class="legs" id="legs"></div>
+    <div class="track" id="track"></div>
+    <button id="go">かけっこをさせる</button>
+    <div class="tally" id="tally"></div>
+  </div>
+</main>
+
+<script src="race.js"></script>
+<script>
+// レースが知っているのはこの4つだけ。強さの数値はどこにも無い。
+const RUNNERS = [
+  { id: 'a', name: 'ヒノコ',   family: 'fire',  up: 'atk' },
+  { id: 'b', name: 'シズク',   family: 'water', up: 'mp'  },
+  { id: 'c', name: 'ワカバ',   family: 'grass', up: 'def' },
+  { id: 'd', name: 'ゴロタ',   family: 'rock',  up: 'hp'  },
+  { id: 'e', name: 'ソヨギ',   family: 'wind',  up: 'spd' },
+  { id: 'f', name: 'ヨイヤミ', family: 'dark',  up: 'int' },
+];
+const COLOR = { fire:'#ff6b4a', water:'#4aa8ff', grass:'#5fd07a', rock:'#d0a24a',
+                wind:'#7ee0d0', dark:'#a76bff', light:'#ffd95c' };
+
+let race = null, timer = null, nodes = {};
+const wins = {};
+const $ = (id) => document.getElementById(id);
+
+function draw() {
+  $('legs').textContent = '';
+  $('track').textContent = '';
+  nodes = {};
+  if (!race) return;
+
+  for (const lg of race.legs) {
+    const c = document.createElement('div');
+    c.className = 'leg';
+    c.style.setProperty('--lc', lg.c);
+    c.innerHTML = `<span class="ln">${lg.name}</span>` +
+      `<span class="lg">${Race.LABEL.fam[lg.good]}↑ ${Race.LABEL.stat[lg.ng]}↑</span>` +
+      `<span class="lb">${Race.LABEL.fam[lg.bad]}↓ ${Race.LABEL.stat[lg.nb]}↓</span>`;
+    $('legs').appendChild(c);
+  }
+
+  const bg = race.legs.map((lg, i) => {
+    const a = i * 100 / Race.RACE.legs, b = (i + 1) * 100 / Race.RACE.legs;
+    return `${lg.c}22 ${a}%, ${lg.c}22 ${b}%`;
+  }).join(', ');
+
+  for (const lane of race.lanes) {
+    const row = document.createElement('div');
+    row.className = 'lane';
+    row.style.setProperty('--legbg', bg);
+    const n = document.createElement('div');
+    n.className = 'runner';
+    n.style.background = COLOR[lane.family] || '#7b86a8';
+    n.style.setProperty('--rx', lane.x + '%');
+    n.textContent = (lane.name || '？')[0];
+    nodes[lane.id] = n;
+    row.appendChild(n);
+    const tag = document.createElement('div');
+    tag.className = 'lane-tag';
+    const place = race.done.indexOf(lane.id);
+    tag.innerHTML = `<span class="nm">${lane.name}</span>` +
+      `<span class="st">${Race.STYLE[lane.up] || Race.STYLE.null}</span>` +
+      (place >= 0 ? `<span class="pl">${place + 1}着</span>` : '');
+    row.appendChild(tag);
+    $('track').appendChild(row);
+  }
+}
+
+function tally() {
+  const line = RUNNERS.map(r => `${r.name} ${wins[r.id] || 0}`).join(' / ');
+  $('tally').textContent = '1着の数  ' + line;
+}
+
+function tick() {
+  const { finished } = Race.step(race);
+  for (const f of finished) if (f.place === 1) wins[f.id] = (wins[f.id] || 0) + 1;
+  for (const lane of race.lanes) {
+    const n = nodes[lane.id];
+    if (!n) continue;
+    n.style.setProperty('--rx', lane.x + '%');
+    if (race.done.includes(lane.id)) n.classList.add('is-done');
+  }
+  $('note').textContent = race.note;
+  if (race.over) {
+    clearInterval(timer); timer = null;
+    $('go').disabled = false; $('go').textContent = 'もう一度';
+    draw(); tally();
+  }
+}
+
+$('go').addEventListener('click', () => {
+  race = Race.make(RUNNERS);
+  if (!race) return;
+  draw();
+  $('note').textContent = race.note;
+  $('go').disabled = true; $('go').textContent = '走っている…';
+  timer = setInterval(tick, Race.RACE.tickMs);
+});
+
+tally();
+</script>
+</body>
+</html>

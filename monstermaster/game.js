@@ -1939,139 +1939,38 @@ function penView() {
 // =====================================================================
 // かけっこ
 //
-// 牧場の遊び。ステータスは一切見ない。速さも運も全員同じで、
-// 違うのは走り方の描写だけ(性格で言い回しが変わる)。
+// 牧場の遊び。ステータスの数値は一切見ない。効くのは系統と性格の向きだけで、
+// それも走るたびに引き直す区間との相性でしかない。
 // 強い個体が勝つ仕組みにすると、遊びではなく順位表になってしまう。
 // =====================================================================
 
-const RACE = {
-  tickMs: 320,
-  goal: 100,
-  step: [2.2, 5.4],   // 1歩の進み。全員このくらい。
-  eventP: 0.15,       // 何かが起きる割合。有利も不利も同じ確率で引く。
-  slots: 6,
-  legs: 4,            // 走路を何区間に割るか
-  good: 1.35,         // 系統が合う区間での進み
-  bad:  0.70,         // 系統が合わない区間での進み
-  natGood: 1.18,      // 性格が合う区間での進み
-  natBad:  0.85,      // 性格が合わない区間での進み
-};
+// 走りの中身は race.js にある。あちらはこのゲームを知らない。
+// ここはその間をつなぐだけ — 牧場のモンスターを4つの値に均し、
+// 走り終わったら勝ち数を書き戻す。
+const RACE = Race.RACE, RACE_LEGS = Race.LEGS,
+      RACE_EVENTS = Race.EVENTS, RACE_STYLE = Race.STYLE;
+const legAt = Race.legAt;
 
-// 区間。走るたびに4つを引き直すので、有利な系統も毎回変わる。
-// どの系統も「得意」に1回・「苦手」に1回ずつ出てくるので、
-// たくさん走らせれば誰も得をしない。
-// 系統だけでなく、性格の得意ステータスも見る。
-// こちらも7つのステータスが「得意」に1回・「苦手」に1回ずつ出てくる。
-const RACE_LEGS = [
-  { id: 'meadow', name: '草原',     good: 'grass', bad: 'rock',  ng: 'spd', nb: 'hp',  c: '#5fd07a' },
-  { id: 'stream', name: '水路',     good: 'water', bad: 'fire',  ng: 'mp',  nb: 'atk', c: '#4aa8ff' },
-  { id: 'scree',  name: '岩場',     good: 'rock',  bad: 'wind',  ng: 'def', nb: 'spd', c: '#d0a24a' },
-  { id: 'gale',   name: '風道',     good: 'wind',  bad: 'grass', ng: 'dex', nb: 'def', c: '#7ee0d0' },
-  { id: 'ember',  name: '火床',     good: 'fire',  bad: 'water', ng: 'atk', nb: 'mp',  c: '#ff6b4a' },
-  { id: 'gloom',  name: '暗がり',   good: 'dark',  bad: 'light', ng: 'int', nb: 'dex', c: '#a76bff' },
-  { id: 'glare',  name: '陽だまり', good: 'light', bad: 'dark',  ng: 'hp',  nb: 'int', c: '#ffd95c' },
-];
-
-// いま何区間目にいるか
-function legAt(x) {
-  return clamp(Math.floor(x / (RACE.goal / RACE.legs)), 0, RACE.legs - 1);
+// レースが見る値はこれだけ。レベルも遺伝も渡さない。
+function raceRunner(m) {
+  return { id: m.uid, name: nameOf(m), family: spOf(m).family, up: natureOf(m).up };
 }
 
-// 出来事。進みの増減と、そのときの言い回し。
-// 誰がどれを引くかは完全に運で、性格は言い方だけを変える。
-const RACE_EVENTS = [
-  { d:  6, t: 'ぐんと伸びた' },
-  { d:  4, t: '外から追い上げた' },
-  { d:  3, t: '前に出た' },
-  { d: -3, t: 'よそ見をした' },
-  { d: -4, t: 'つまずいた' },
-  { d: -6, t: '立ち止まってしまった' },
-];
-
-// 性格ごとの走り方(描写だけ)
-const RACE_STYLE = {
-  spd: 'ぴょんぴょん跳ねながら', dex: '小刻みに', atk: '突っ込むように',
-  hp:  'どっしりと',           def: 'のしのしと', int: '様子を見ながら',
-  mp:  'ふわふわと',           null: 'まっすぐに',
-};
-
 function raceStart() {
-  const pool = S.monsters.slice();
-  for (let i = pool.length - 1; i > 0; i--) { const j = ri(0, i); [pool[i], pool[j]] = [pool[j], pool[i]]; }
-  const runners = pool.slice(0, RACE.slots);
-  if (runners.length < 2) return null;
-
-  // 区間を引く。重ならないように選ぶ。
-  const legPool = RACE_LEGS.slice();
-  for (let i = legPool.length - 1; i > 0; i--) { const j = ri(0, i); [legPool[i], legPool[j]] = [legPool[j], legPool[i]]; }
-  const legs = legPool.slice(0, RACE.legs);
-
-  UI.race = {
-    lanes: runners.map(m => ({ uid: m.uid, x: 0, leg: 0 })),
-    legs, done: [], over: false, note: 'よーい',
-  };
+  UI.race = Race.make(S.monsters.map(raceRunner));
   return UI.race;
 }
 
 function raceStep() {
   const r = UI.race;
   if (!r || r.over) return;
-  let note = null;
-  const reached = [];
-  for (const lane of r.lanes) {
-    if (r.done.includes(lane.uid)) continue;
-    const m = S.monsters.find(x => x.uid === lane.uid);
-    if (!m) { r.done.push(lane.uid); continue; }
-    let d = RACE.step[0] + Math.random() * (RACE.step[1] - RACE.step[0]);
-    // いる区間との相性。走るたびに区間が変わるので、毎回ちがう顔ぶれが伸びる。
-    const leg = (r.legs || [])[legAt(lane.x)];
-    const fam = spOf(m).family;
-    const up = natureOf(m).up;
-    if (leg) {
-      if (leg.good === fam) d *= RACE.good;
-      else if (leg.bad === fam) d *= RACE.bad;
-      // 性格の効きは系統より小さい。両方そろうといちばん伸びる。
-      if (up && leg.ng === up) d *= RACE.natGood;
-      else if (up && leg.nb === up) d *= RACE.natBad;
-    }
-    if (Math.random() < RACE.eventP) {
-      const ev = pick(RACE_EVENTS);
-      d += ev.d;
-      if (!note) note = `${nameOf(m)} が ${ev.t}`;
-    }
-    lane.x = Math.max(0, lane.x + d);
-    // 区間をまたいだら知らせる
-    const now = legAt(lane.x);
-    if (now !== lane.leg) {
-      lane.leg = now;
-      const nl = (r.legs || [])[now];
-      if (nl && !note) {
-        const plus = (nl.good === fam ? 1 : 0) + (up && nl.ng === up ? 1 : 0);
-        const minus = (nl.bad === fam ? 1 : 0) + (up && nl.nb === up ? 1 : 0);
-        if (plus > minus) note = `${nameOf(m)} が ${nl.name} に入った(${plus > 1 ? '大得意' : '得意'})`;
-        else if (minus > plus) note = `${nameOf(m)} が ${nl.name} に入った(${minus > 1 ? '大の苦手' : '苦手'})`;
-      }
-    }
-    if (lane.x >= RACE.goal) reached.push({ lane, m });
+  const { finished } = Race.step(r);
+  for (const f of finished) {
+    if (f.place !== 1) continue;
+    const m = S.monsters.find(x => x.uid === f.id);
+    if (m) m.wins = (m.wins || 0) + 1;
   }
-
-  // 同じ歩でゴールした者の順位。踏み込んだ距離が大きいほうを上にする。
-  // ここを並び順のままにすると、上のレーンが同着をぜんぶ持っていってしまう。
-  reached.sort((a, b) => (b.lane.x - a.lane.x) || (Math.random() - 0.5));
-  for (const { lane, m } of reached) {
-    lane.x = RACE.goal;
-    r.done.push(lane.uid);
-    const place = r.done.length;
-    note = `${place}着 ${nameOf(m)}`;
-    if (place === 1) m.wins = (m.wins || 0) + 1;
-  }
-  if (note) r.note = note;
-  if (r.done.length >= r.lanes.length) {
-    r.over = true;
-    const first = S.monsters.find(x => x.uid === r.done[0]);
-    if (first) r.note = `${nameOf(first)} の勝ち`;
-    save();
-  }
+  if (r.over) save();
 }
 
 function raceView() {
@@ -2105,18 +2004,19 @@ function raceView() {
       }).join(', '));
     UI.raceNodes = {};
     r.lanes.forEach((lane, i) => {
-      const m = S.monsters.find(x => x.uid === lane.uid);
+      // 走者の名前や系統はレース側が持っている。絵だけこちらから足す。
+      const m = S.monsters.find(x => x.uid === lane.id);
       const row = el('div', 'lane');
       const n = el('div', 'runner');
       if (m) n.appendChild(emblem(m, 'sm'));
       n.style.setProperty('--rx', lane.x + '%');
-      const place = r.done.indexOf(lane.uid);
+      const place = r.done.indexOf(lane.id);
       if (place >= 0) n.classList.add('is-done');
-      UI.raceNodes[lane.uid] = n;
+      UI.raceNodes[lane.id] = n;
       row.appendChild(n);
       const tag = el('div', 'lane-tag');
-      tag.appendChild(el('span', 'nm', m ? nameOf(m) : '？'));
-      if (m) tag.appendChild(el('span', 'st', RACE_STYLE[natureOf(m).up] || RACE_STYLE.null));
+      tag.appendChild(el('span', 'nm', lane.name || '？'));
+      tag.appendChild(el('span', 'st', RACE_STYLE[lane.up] || RACE_STYLE.null));
       if (place >= 0) tag.appendChild(el('span', 'pl', `${place + 1}着`));
       row.appendChild(tag);
       track.appendChild(row);
@@ -3127,10 +3027,10 @@ function init() {
       const wasOver = UI.race.over;
       raceStep();
       for (const lane of UI.race.lanes) {
-        const n = UI.raceNodes[lane.uid];
+        const n = UI.raceNodes[lane.id];
         if (!n) continue;
         n.style.setProperty('--rx', lane.x + '%');
-        if (UI.race.done.includes(lane.uid)) n.classList.add('is-done');
+        if (UI.race.done.includes(lane.id)) n.classList.add('is-done');
       }
       if (UI.raceNote) UI.raceNote.textContent = UI.race.note;
       if (UI.race.over !== wasOver) render();   // 終わったら順位を出すため描き直す
