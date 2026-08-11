@@ -1801,30 +1801,34 @@ function penStep() {
     const st = penStyle(m), p = penSpot(m.uid);
 
     if (Math.random() < PEN.nap) p.nap = !p.nap;
+
+    // ---- 用のあるなし ----
+    // 歩いたかどうかに関わらず毎回進める。動きの中に入れてしまうと、
+    // うずくまっている子の「満足するまでの時間」が止まって居座りになる。
+    const drop = () => { if (p.want && crowd[p.want] != null) crowd[p.want]--; p.want = null; p.stay = 0; };
+
+    // 用が済んだあとは、しばらく他を回る。居座られると次の子が寄れず、
+    // 好きな器具の前が渋滞して見ていて面白くない。
+    if (p.bored > 0) { p.bored--; drop(); }
+
+    if (p.want) {
+      if (!targets[p.want]) drop();
+      else if (isNear(p, targets[p.want])) {
+        // 着いた。少し居たら満足して離れる。
+        p.stay = (p.stay || 0) + 1;
+        if (p.stay > PEN.stay) { drop(); p.bored = ri(PEN.bored[0], PEN.bored[1]); }
+      } else p.stay = 0;
+    }
+    if (!p.want && !p.bored && Math.random() < PEN.seek) {
+      const ids = Object.keys(targets).filter(id => crowd[id] < PEN.crowd);
+      if (ids.length) {
+        const mine = ids.filter(id => (FIXTURES[id] || TERRAINS[id]).likes === spOf(m).family);
+        p.want = pick(mine.length && Math.random() < 0.7 ? mine : ids);
+        crowd[p.want]++;
+      }
+    }
+
     if (!p.nap && Math.random() >= st.still) {
-      // 器具に用があるときはそちらへ寄る。好きな系統ならなお寄る。
-      const drop = () => { if (p.want && crowd[p.want] != null) crowd[p.want]--; p.want = null; p.stay = 0; };
-
-      // 用が済んだあとは、しばらく他を回る。居座られると次の子が寄れず、
-      // 好きな器具の前が渋滞して見ていて面白くない。
-      if (p.bored > 0) { p.bored--; drop(); }
-
-      if (p.want) {
-        if (!targets[p.want]) drop();
-        else if (isNear(p, targets[p.want])) {
-          // 着いた。少し居たら満足して離れる。
-          p.stay = (p.stay || 0) + 1;
-          if (p.stay > PEN.stay) { drop(); p.bored = ri(PEN.bored[0], PEN.bored[1]); }
-        } else p.stay = 0;
-      }
-      if (!p.want && !p.bored && Math.random() < PEN.seek) {
-        const ids = Object.keys(targets).filter(id => crowd[id] < PEN.crowd);
-        if (ids.length) {
-          const mine = ids.filter(id => (FIXTURES[id] || TERRAINS[id]).likes === spOf(m).family);
-          p.want = pick(mine.length && Math.random() < 0.7 ? mine : ids);
-          crowd[p.want]++;
-        }
-      }
       let dx, dy;
       if (p.want) {
         const t = targets[p.want];
