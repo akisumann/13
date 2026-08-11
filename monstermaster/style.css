@@ -857,6 +857,7 @@ button:focus-visible, .mon:focus-visible {
 
 /* ===== かけっこ ===== */
 .track { display: flex; flex-direction: column; gap: 6px; }
+.track { --legbg: transparent 0%, transparent 100%; }
 .lane {
   position: relative;
   height: 34px;
@@ -969,3 +970,19 @@ button:focus-visible, .mon:focus-visible {
 .toggle .tg-box { font-family: var(--mono); color: var(--muted); }
 .toggle.is-on .tg-box { color: var(--accent); }
 .toggle .tg-note { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+
+/* かけっこの区間 */
+.legs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.leg {
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 5px 2px 4px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--lc) 14%, var(--ground));
+  border-top: 2px solid var(--lc);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.leg .ln { font-size: 11px; font-weight: 700; color: var(--text); }
+.leg .lg { color: #6bd39a; font-family: var(--mono); }
+.leg .lb { color: var(--danger); font-family: var(--mono); }
+.track .lane { background-image: linear-gradient(90deg, var(--legbg)); }

@@ -1946,7 +1946,28 @@ const RACE = {
   step: [2.2, 5.4],   // 1歩の進み。全員このくらい。
   eventP: 0.15,       // 何かが起きる割合。有利も不利も同じ確率で引く。
   slots: 6,
+  legs: 4,            // 走路を何区間に割るか
+  good: 1.35,         // 得意な区間での進み
+  bad:  0.70,         // 苦手な区間での進み
 };
+
+// 区間。走るたびに4つを引き直すので、有利な系統も毎回変わる。
+// どの系統も「得意」に1回・「苦手」に1回ずつ出てくるので、
+// たくさん走らせれば誰も得をしない。
+const RACE_LEGS = [
+  { id: 'meadow', name: '草原',     good: 'grass', bad: 'rock',  c: '#5fd07a' },
+  { id: 'stream', name: '水路',     good: 'water', bad: 'fire',  c: '#4aa8ff' },
+  { id: 'scree',  name: '岩場',     good: 'rock',  bad: 'wind',  c: '#d0a24a' },
+  { id: 'gale',   name: '風道',     good: 'wind',  bad: 'grass', c: '#7ee0d0' },
+  { id: 'ember',  name: '火床',     good: 'fire',  bad: 'water', c: '#ff6b4a' },
+  { id: 'gloom',  name: '暗がり',   good: 'dark',  bad: 'light', c: '#a76bff' },
+  { id: 'glare',  name: '陽だまり', good: 'light', bad: 'dark',  c: '#ffd95c' },
+];
+
+// いま何区間目にいるか
+function legAt(x) {
+  return clamp(Math.floor(x / (RACE.goal / RACE.legs)), 0, RACE.legs - 1);
+}
 
 // 出来事。進みの増減と、そのときの言い回し。
 // 誰がどれを引くかは完全に運で、性格は言い方だけを変える。
@@ -1971,9 +1992,15 @@ function raceStart() {
   for (let i = pool.length - 1; i > 0; i--) { const j = ri(0, i); [pool[i], pool[j]] = [pool[j], pool[i]]; }
   const runners = pool.slice(0, RACE.slots);
   if (runners.length < 2) return null;
+
+  // 区間を引く。重ならないように選ぶ。
+  const legPool = RACE_LEGS.slice();
+  for (let i = legPool.length - 1; i > 0; i--) { const j = ri(0, i); [legPool[i], legPool[j]] = [legPool[j], legPool[i]]; }
+  const legs = legPool.slice(0, RACE.legs);
+
   UI.race = {
-    lanes: runners.map(m => ({ uid: m.uid, x: 0 })),
-    done: [], over: false, note: 'よーい',
+    lanes: runners.map(m => ({ uid: m.uid, x: 0, leg: 0 })),
+    legs, done: [], over: false, note: 'よーい',
   };
   return UI.race;
 }
@@ -1988,12 +2015,27 @@ function raceStep() {
     const m = S.monsters.find(x => x.uid === lane.uid);
     if (!m) { r.done.push(lane.uid); continue; }
     let d = RACE.step[0] + Math.random() * (RACE.step[1] - RACE.step[0]);
+    // いる区間との相性。走るたびに区間が変わるので、毎回ちがう顔ぶれが伸びる。
+    const leg = (r.legs || [])[legAt(lane.x)];
+    const fam = spOf(m).family;
+    if (leg) {
+      if (leg.good === fam) d *= RACE.good;
+      else if (leg.bad === fam) d *= RACE.bad;
+    }
     if (Math.random() < RACE.eventP) {
       const ev = pick(RACE_EVENTS);
       d += ev.d;
       if (!note) note = `${nameOf(m)} が ${ev.t}`;
     }
     lane.x = Math.max(0, lane.x + d);
+    // 区間をまたいだら知らせる
+    const now = legAt(lane.x);
+    if (now !== lane.leg) {
+      lane.leg = now;
+      const nl = (r.legs || [])[now];
+      if (nl && !note && nl.good === fam) note = `${nameOf(m)} が ${nl.name} に入った(得意)`;
+      else if (nl && !note && nl.bad === fam) note = `${nameOf(m)} が ${nl.name} に入った(苦手)`;
+    }
     if (lane.x >= RACE.goal) reached.push({ lane, m });
   }
 
@@ -2026,7 +2068,24 @@ function raceView() {
   panel.appendChild(head);
 
   if (r) {
+    // どの区間で誰が伸びるか
+    const legend = el('div', 'legs');
+    r.legs.forEach((lg, i) => {
+      const c = el('div', 'leg');
+      c.style.setProperty('--lc', lg.c);
+      c.appendChild(el('span', 'ln', lg.name));
+      c.appendChild(el('span', 'lg', FAMILIES[lg.good].name + '↑'));
+      c.appendChild(el('span', 'lb', FAMILIES[lg.bad].name + '↓'));
+      legend.appendChild(c);
+    });
+    panel.appendChild(legend);
+
     const track = el('div', 'track');
+    track.style.setProperty('--legbg',
+      r.legs.map((lg, i) => {
+        const a = i * 100 / RACE.legs, b = (i + 1) * 100 / RACE.legs;
+        return `${lg.c}22 ${a}%, ${lg.c}22 ${b}%`;
+      }).join(', '));
     UI.raceNodes = {};
     r.lanes.forEach((lane, i) => {
       const m = S.monsters.find(x => x.uid === lane.uid);
