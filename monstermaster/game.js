@@ -298,13 +298,39 @@ const ITEMS = {
 // ここで売るものは見た目だけ。戦闘の数値には一切触らない。
 // ステータスを売らないのと同じ理由で、代わりに「眺め」を売る。
 
+// 敷地。にわ全体の下地になる色。
 const GROUNDS = [
-  { id: 'grass', name: '草地',   price: 0,    hue: '#5fd07a', desc: '踏み固められた土と草。最初からある。' },
-  { id: 'sand',  name: '砂地',   price: 700,  hue: '#d0a24a', desc: '乾いた砂。足あとがよく残る。' },
-  { id: 'stone', name: '石畳',   price: 1400, hue: '#8e9ab8', desc: '敷き詰めた石。硬い音が返る。' },
-  { id: 'water', name: '水辺',   price: 2400, hue: '#4aa8ff', desc: '浅く水を張ってある。歩くと跳ねる。' },
-  { id: 'night', name: '星天',   price: 4200, hue: '#a76bff', desc: '夜だけが降りている。理由は誰も知らない。' },
+  { id: 'grass', name: '草地', price: 0,    hue: '#5fd07a', c: '#263a2a', c2: '#2e4632',
+    desc: '踏み固められた土と草。最初からある。' },
+  { id: 'sand',  name: '砂地', price: 700,  hue: '#d0a24a', c: '#453a26', c2: '#54462c',
+    desc: '乾いた砂。足あとがよく残る。' },
+  { id: 'stone', name: '石畳', price: 1400, hue: '#8e9ab8', c: '#2c3240', c2: '#363d4e',
+    desc: '敷き詰めた石。硬い音が返る。' },
+  { id: 'water', name: '水辺', price: 2400, hue: '#4aa8ff', c: '#1c3450', c2: '#234062',
+    desc: '浅く水を張ってある。歩くと跳ねる。' },
+  { id: 'night', name: '星天', price: 4200, hue: '#a76bff', c: '#0d1020', c2: '#151a30',
+    desc: '夜だけが降りている。理由は誰も知らない。' },
 ];
+
+// ===== 地形 =====
+// にわの上に敷く。器具と違って面で広がり、上に乗ると反応が変わる。
+const PEN_TILE = { cols: 22, rows: 11, px: 8 };
+const TERRAIN_MAX = 4;
+
+const TERRAINS = {
+  grassland: { name: '草はら',   price: 600,  likes: 'grass', c: '#2f6b3c', c2: '#3f8a4c', top: '#5fd07a',
+    acts: ['で 寝転がった', 'の草を食んでいる', 'に 潜りこんだ'] },
+  pond:      { name: '水たまり', price: 850,  likes: 'water', c: '#1d4a72', c2: '#2a6396', top: '#4aa8ff',
+    acts: ['に 浸かっている', 'の水を跳ねさせた', 'を のぞきこんだ'], wet: true },
+  rockface:  { name: '岩肌',     price: 1000, likes: 'rock',  c: '#4a4437', c2: '#5e5644', top: '#d0a24a',
+    acts: ['に よじ登った', 'の上で日を浴びている', 'を 削っている'], high: true },
+  ember:     { name: '焚き跡',   price: 1200, likes: 'fire',  c: '#4a2a24', c2: '#63372c', top: '#ff6b4a',
+    acts: ['の灰をかき回した', 'で 暖まっている', 'に 火を入れ直した'] },
+  ledge:     { name: '段差',     price: 1500, likes: 'wind',  c: '#3a4256', c2: '#4a546e', top: '#7ee0d0',
+    acts: ['から 飛び降りた', 'の上に立っている', 'を 何度も跳んでいる'], high: true },
+  cave:      { name: '洞窟',     price: 2000, likes: 'dark',  c: '#161a26', c2: '#1e2432', top: '#a76bff',
+    acts: ['に 入っていった', 'の奥から見ている', 'の入口で丸くなった'], hide: true },
+};
 
 // 器具。7×5のドット絵と、寄ってくる系統・することが決まっている。
 const FIXTURES = {
@@ -964,7 +990,7 @@ let UI = {
   tab: 'ranch', picks: [], area: 1, party: [], result: null, open: null,
   cup: 1, cupTeam: [], cupResult: null,
   eggFamily: null, use: {},
-  pen: {}, penNodes: null, penCaption: null,
+  pen: {}, penNodes: null, penCaption: null, penTerrain: null, penGroundKey: null, penGroundURL: null,
   born: null, bornNew: false, // 直前に配合で生まれた子(配合タブに留まったまま結果を見せる)
   order: null,                // 表示順(uidの配列)。null なら次の描画で強さ順に並べ直す
 };
@@ -987,7 +1013,8 @@ function newState() {
     rivals: {},    // 大会ID → { met: 決勝で会ったか, beaten: 勝ったか, losses: 負けた回数 }
     items: {},     // 触媒ID → 個数
     barn: 0,       // 牧場を広げた回数
-    pen: { ground: 'grass', fixtures: [] },  // にわの敷地と器具(見た目だけ)
+    // にわの敷地・地形・器具(見た目だけ)。owned は買ってある敷地。
+    pen: { ground: 'grass', fixtures: [], terrain: [], owned: [] },
   };
 }
 
@@ -1040,6 +1067,9 @@ function load() {
         ground: GROUNDS.some(g => g.id === (d.pen && d.pen.ground)) ? d.pen.ground : 'grass',
         fixtures: ((d.pen && Array.isArray(d.pen.fixtures)) ? d.pen.fixtures : [])
           .filter((id, i, a) => FIXTURES[id] && a.indexOf(id) === i).slice(0, FIXTURE_MAX),
+        terrain: ((d.pen && Array.isArray(d.pen.terrain)) ? d.pen.terrain : [])
+          .filter((id, i, a) => TERRAINS[id] && a.indexOf(id) === i).slice(0, TERRAIN_MAX),
+        owned: (d.pen && Array.isArray(d.pen.owned)) ? d.pen.owned.filter(id => GROUNDS.some(g => g.id === id)) : [],
       },
     };
   } catch (e) { return null; }
@@ -1173,6 +1203,22 @@ function doBuyFixture(id) {
   S.gold -= f.price;
   S.pen.fixtures.push(id);
   return { fixture: f };
+}
+
+function doBuyTerrain(id) {
+  const t = TERRAINS[id];
+  if (!t || S.pen.terrain.includes(id)) return null;
+  if (S.pen.terrain.length >= TERRAIN_MAX || S.gold < t.price) return null;
+  S.gold -= t.price;
+  S.pen.terrain.push(id);
+  return { terrain: t };
+}
+
+function doRemoveTerrain(id) {
+  const i = S.pen.terrain.indexOf(id);
+  if (i < 0) return null;
+  S.pen.terrain.splice(i, 1);
+  return true;
 }
 
 function doRemoveFixture(id) {
@@ -1552,6 +1598,88 @@ const PEN_ALONE = [
   '尻尾を追いかけている', '伸びをした', 'ぼんやりしている', '転がった',
 ];
 
+// 地形をタイルに敷く。並び順から場所が決まるので、いつ見ても同じ形になる。
+function penTerrainMap() {
+  const { cols, rows } = PEN_TILE;
+  const map = Array.from({ length: rows }, () => new Array(cols).fill(null));
+  const list = S.pen.terrain;
+  list.forEach((id, i) => {
+    const R = seededRng(seedOf('tr' + id));
+    // 4つまでなので、左上・右上・左下・右下に振り分けて重なりを減らす
+    const cx = (i % 2 ? 0.68 : 0.32) * cols + (R() - 0.5) * 3;
+    const cy = (i < 2 ? 0.32 : 0.70) * rows + (R() - 0.5) * 2;
+    const rx = 3.4 + R() * 2.2, ry = 1.8 + R() * 1.2;
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+      const dx = (x + 0.5 - cx) / rx, dy = (y + 0.5 - cy) / ry;
+      // 縁を少しだけ崩して、楕円に見えないようにする
+      if (dx * dx + dy * dy < 1 + (R() - 0.5) * 0.5) map[y][x] = id;
+    }
+  });
+  return map;
+}
+
+// にわの中の割合(%)から、そこがどの地形かを引く
+function terrainAt(xPct, yPct) {
+  const map = UI.penTerrain || (UI.penTerrain = penTerrainMap());
+  const x = clamp(Math.floor(xPct / 100 * PEN_TILE.cols), 0, PEN_TILE.cols - 1);
+  const y = clamp(Math.floor(yPct / 100 * PEN_TILE.rows), 0, PEN_TILE.rows - 1);
+  return map[y][x];
+}
+
+// 地形のいる場所(寄っていく先)。同じ地形の真ん中あたりを返す。
+function terrainSpots() {
+  const map = UI.penTerrain || (UI.penTerrain = penTerrainMap());
+  const acc = {};
+  for (let y = 0; y < PEN_TILE.rows; y++) for (let x = 0; x < PEN_TILE.cols; x++) {
+    const id = map[y][x];
+    if (!id) continue;
+    const a = acc[id] || (acc[id] = { x: 0, y: 0, n: 0 });
+    a.x += (x + 0.5) / PEN_TILE.cols * 100;
+    a.y += (y + 0.5) / PEN_TILE.rows * 100;
+    a.n++;
+  }
+  const out = {};
+  for (const [id, a] of Object.entries(acc)) out[id] = { x: a.x / a.n, y: a.y / a.n };
+  return out;
+}
+
+// にわの下地。タイルを1枚の絵にして data URL で持つ。
+function penGroundURL() {
+  const key = S.pen.ground + '|' + S.pen.terrain.join(',');
+  if (UI.penGroundKey === key) return UI.penGroundURL;
+  let url = null;
+  try {
+    const cv = document.createElement('canvas');
+    if (cv.getContext) {
+      const { cols, rows, px } = PEN_TILE;
+      cv.width = cols * px; cv.height = rows * px;
+      const g = cv.getContext('2d');
+      const base = GROUNDS.find(x => x.id === S.pen.ground) || GROUNDS[0];
+      const map = penTerrainMap();
+      const R = seededRng(seedOf('pen' + key));
+      for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+        const id = map[y][x];
+        const t = id ? TERRAINS[id] : base;
+        // 上の縁だけ明るくして、面に厚みを出す
+        const edge = id && (y === 0 || map[y - 1][x] !== id);
+        g.fillStyle = edge ? t.top : (R() < 0.22 ? t.c2 : t.c);
+        g.fillRect(x * px, y * px, px, px);
+      }
+      // 星天のときだけ星を散らす
+      if (S.pen.ground === 'night') {
+        g.fillStyle = '#e4e8f6';
+        for (let i = 0; i < 26; i++) {
+          const x = Math.floor(R() * cols), y = Math.floor(R() * rows);
+          if (!map[y][x]) g.fillRect(x * px + 3, y * px + 3, 2, 2);
+        }
+      }
+      url = cv.toDataURL();
+    }
+  } catch (e) { url = null; }
+  UI.penGroundKey = key; UI.penGroundURL = url;
+  return url;
+}
+
 // 器具の置き場所。並び順から決めるので、いつ見ても同じところにある。
 function fixtureSpots() {
   const out = {};
@@ -1613,6 +1741,7 @@ function penStep() {
   const spots = [];
   const fx = fixtureSpots();
   const fxIds = Object.keys(fx);
+  const targets = { ...fx, ...terrainSpots() };
 
   for (const m of S.monsters) {
     const node = UI.penNodes[m.uid];
@@ -1622,16 +1751,17 @@ function penStep() {
     if (Math.random() < PEN.nap) p.nap = !p.nap;
     if (!p.nap && Math.random() >= st.still) {
       // 器具に用があるときはそちらへ寄る。好きな系統ならなお寄る。
-      if (!p.want || !fx[p.want] || Math.random() < 0.25) {
+      if (!p.want || !targets[p.want] || Math.random() < 0.25) {
         p.want = null;
-        if (fxIds.length && Math.random() < PEN.seek) {
-          const mine = fxIds.filter(id => FIXTURES[id].likes === spOf(m).family);
-          p.want = pick(mine.length && Math.random() < 0.7 ? mine : fxIds);
+        const ids = Object.keys(targets);
+        if (ids.length && Math.random() < PEN.seek) {
+          const mine = ids.filter(id => (FIXTURES[id] || TERRAINS[id]).likes === spOf(m).family);
+          p.want = pick(mine.length && Math.random() < 0.7 ? mine : ids);
         }
       }
       let dx, dy;
       if (p.want) {
-        const t = fx[p.want];
+        const t = targets[p.want];
         dx = clamp(Math.round(t.x - p.x), -st.step, st.step);
         dy = clamp(Math.round(t.y - p.y), -st.step, st.step);
         if (!dx && !dy) { dx = ri(-2, 2); dy = ri(-2, 2); }
@@ -1646,6 +1776,19 @@ function penStep() {
     }
     applySpot(node, p);
     spots.push({ m, p });
+  }
+
+  // 地形の上に乗っている者は、そこに合わせた顔になる
+  for (const { m, p } of spots) {
+    const id = terrainAt(p.x, p.y);
+    const node = UI.penNodes[m.uid];
+    const t = id ? TERRAINS[id] : null;
+    node.classList.toggle('on-high', !!(t && t.high));
+    node.classList.toggle('on-hide', !!(t && t.hide));
+    node.classList.toggle('on-wet', !!(t && t.wet));
+    if (t && !said.length && Math.random() < PEN.play * 0.8) {
+      said.push(`${nameOf(m)} が ${t.name} ${pick(t.acts)}`);
+    }
   }
 
   // 器具のそばにいる者は、その器具で遊ぶ
@@ -1691,6 +1834,9 @@ function penView() {
   const pen = el('div', 'pen ground-' + S.pen.ground);
   const gr = GROUNDS.find(g => g.id === S.pen.ground) || GROUNDS[0];
   pen.style.setProperty('--gh', gr.hue);
+  UI.penTerrain = penTerrainMap();
+  const bg = penGroundURL();
+  if (bg) { pen.classList.add('has-ground'); pen.style.backgroundImage = `url(${bg})`; }
 
   // 器具は下に敷く
   const fx = fixtureSpots();
@@ -1816,6 +1962,49 @@ function shopPanel() {
   shop.appendChild(el('p', 'hint',
     (GROUNDS.find(g => g.id === S.pen.ground) || GROUNDS[0]).desc +
     ' 一度買えば、あとは何度でも張り替えられる。'));
+
+  // ---- にわの地形 ----
+  shop.appendChild(el('div', 'shop-label', `にわの地形 (${S.pen.terrain.length} / ${TERRAIN_MAX})`));
+  for (const [id, t] of Object.entries(TERRAINS)) {
+    const laid = S.pen.terrain.includes(id);
+    const row = el('div', 'item-row');
+    const sw = el('div', 'tr-swatch');
+    sw.style.setProperty('--tc', t.c2);
+    sw.style.setProperty('--tt', t.top);
+    row.appendChild(sw);
+    const main = el('div', 'item-main');
+    const nm = el('div', 'item-name');
+    nm.appendChild(el('span', null, t.name));
+    if (laid) nm.appendChild(el('span', 'item-have', '敷いてある'));
+    main.appendChild(nm);
+    main.appendChild(el('div', 'item-desc',
+      `${FAMILIES[t.likes].name}系がよく寄る。` +
+      (t.high ? '上に乗ると高いところに立つ。' : t.hide ? '入ると姿が隠れる。' : t.wet ? '浸かると濡れる。' : '') +
+      `そばに来ると「${t.acts[0]}」`));
+    row.appendChild(main);
+    const b = el('button', 'buy sm');
+    if (laid) {
+      b.appendChild(el('div', 'buy-name', 'はがす'));
+      b.addEventListener('click', () => {
+        if (!doRemoveTerrain(id)) return;
+        toast(`${t.name} をはがした`);
+        save(); render();
+      });
+    } else {
+      b.appendChild(el('div', 'buy-price', `${t.price} G`));
+      if (S.gold < t.price || S.pen.terrain.length >= TERRAIN_MAX) b.disabled = true;
+      b.addEventListener('click', () => {
+        const r = doBuyTerrain(id);
+        if (!r) return;
+        toast(`にわに ${t.name} を敷いた`);
+        save(); render();
+      });
+    }
+    row.appendChild(b);
+    shop.appendChild(row);
+  }
+  shop.appendChild(el('p', 'hint',
+    `敷けるのは${TERRAIN_MAX}つまで。器具と違って面で広がり、上に乗ったモンスターの様子が変わる。`));
 
   // ---- にわの器具 ----
   shop.appendChild(el('div', 'shop-label', `にわの器具 (${S.pen.fixtures.length} / ${FIXTURE_MAX})`));

@@ -813,15 +813,17 @@ button:focus-visible, .mon:focus-visible {
     repeating-linear-gradient(0deg, transparent 0 26px, color-mix(in srgb, var(--line) 55%, transparent) 26px 27px),
     color-mix(in srgb, var(--gh, var(--accent)) 5%, var(--ground));
 }
-.pen.ground-night {
-  background:
-    radial-gradient(60% 90% at 30% 20%, color-mix(in srgb, var(--gh) 22%, transparent), transparent 70%),
-    radial-gradient(1px 1px at 20% 30%, #fff, transparent),
-    radial-gradient(1px 1px at 70% 20%, #fff, transparent),
-    radial-gradient(1px 1px at 45% 60%, #fff, transparent),
-    radial-gradient(1px 1px at 85% 70%, #fff, transparent),
-    radial-gradient(1px 1px at 12% 75%, #fff, transparent),
-    #05070d;
+/* 地形をタイルで描いたときは、そちらを下地にする(絵は inline style で入る) */
+.pen.has-ground {
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+.tr-swatch {
+  flex: 0 0 auto;
+  width: 34px; height: 26px;
+  border-radius: 3px;
+  background: linear-gradient(var(--tt) 0 4px, var(--tc) 4px);
 }
 .pen-fx {
   position: absolute;
@@ -843,3 +845,10 @@ button:focus-visible, .mon:focus-visible {
   background-size: contain;
   image-rendering: pixelated;
 }
+
+/* 地形に乗ったときの様子 */
+.pen-mon.on-high { --lift: -5px; }
+.pen-mon { transform: translate(-50%, calc(-50% + var(--lift, 0px))) scaleX(var(--flip, 1)); }
+.pen-mon.is-nap { transform: translate(-50%, calc(-50% + var(--lift, 0px))) scaleX(var(--flip, 1)) scaleY(0.82); }
+.pen-mon.on-hide { opacity: 0.45; }
+.pen-mon.on-wet .emblem { box-shadow: 0 3px 0 -1px color-mix(in srgb, #4aa8ff 55%, transparent); }
