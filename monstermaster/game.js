@@ -63,7 +63,6 @@ const FAMILIES = {
 };
 
 const BASE_FAMILIES = ['fire', 'water', 'grass', 'rock', 'wind'];
-const MAX_RANK = 6;
 
 // =====================================================================
 // スキル
@@ -147,18 +146,6 @@ const SPECIES = [
   ['dark',  4, 'ノクターン',   'CAACABB', 'meikyou kyushu sensei'],
   ['dark',  5, 'ニュクス',     'ASSASAA', 'meikyou dokuga kaishin'],
   ['light', 5, 'ルクスノヴァ', 'SSSSSSS', 'meikyou kyoku sensei'], // 唯一、全ステータスが最高位S
-
-  // ---- ランク6「極み」----
-  // 同じ種のランク5を2匹配合したときだけ生まれる。
-  // 成長係数はランク5と同じ。F〜Sの段階はランク5で出し切っているので、
-  // ここから先の強さはレベル上限(24)・遺伝上限(20)・極み補正で伸ばしている。
-  // 闇にランク6は無い。闇の行き着く先は光であり、それがこの系統の極み。
-  ['fire',  6, 'カルデラス',     'AASASAA', 'gouwan kaishin fukutsu'],
-  ['water', 6, 'アビスマリン',   'ASSSAAA', 'masen kyushu meikyou'],
-  ['grass', 6, 'セフィロト',     'ASAASSS', 'teppeki kyoku kyushu'],
-  ['rock',  6, 'オロゲナイト',   'AASAAAS', 'kyoku teppeki gouwan'],
-  ['wind',  6, 'ストラトス',     'AASAAAA', 'idaten sensei kaishin'],
-  ['light', 6, 'エターナルクス', 'SSSSSSS', 'meikyou kyoku kyushu'],
 ].map(([family, rank, name, grades, innate]) => ({
   id: family + rank, family, rank, name,
   growth: STATS.reduce((o, st, i) => (o[st.key] = grades[i], o), {}),
@@ -185,15 +172,12 @@ const FUSION_TABLE = {
   'rock+wind': 'rock',
 };
 
-// wildLv は野生のレベル。ランク6だけレベル上限が跳ね上がるので、
-// 他のエリアと同じ手ごたえになるよう上限に対する割合で置き直してある。
 const AREAS = [
-  { id: 1, name: 'はじまりの草原', rank: 1, gold: [10, 20],   wildLv: 1 },
-  { id: 2, name: 'ぬかるみの沼',   rank: 2, gold: [22, 40],   wildLv: 3 },
-  { id: 3, name: '岩窟回廊',       rank: 3, gold: [45, 75],   wildLv: 5 },
-  { id: 4, name: '嵐の尖塔',       rank: 4, gold: [80, 130],  wildLv: 7 },
-  { id: 5, name: '虚無の深淵',     rank: 5, gold: [150, 240], wildLv: 9 },
-  { id: 6, name: '常世の果て',     rank: 6, gold: [260, 420], wildLv: 18 },
+  { id: 1, name: 'はじまりの草原', rank: 1, gold: [10, 20] },
+  { id: 2, name: 'ぬかるみの沼',   rank: 2, gold: [22, 40] },
+  { id: 3, name: '岩窟回廊',       rank: 3, gold: [45, 75] },
+  { id: 4, name: '嵐の尖塔',       rank: 4, gold: [80, 130] },
+  { id: 5, name: '虚無の深淵',     rank: 5, gold: [150, 240] },
 ];
 
 const EGG_PRICE = 60;
@@ -290,13 +274,7 @@ function inheritSkills(a, b, childSpecies) {
 
 function spOf(m) { return speciesById(m.sp); }
 function famOf(m) { return FAMILIES[spOf(m).family]; }
-// ランク5までは3ずつ。ランク6だけ大きく開けてある。
-// F〜Sの成長係数はランク5で出し切っているので、そこから先の伸びしろは
-// 「まだレベルが上がる」という形でしか作れない。
-// レベル40はスキル合計20 = SKILL_MAX の2枠ぶんにちょうど一致するので、
-// 極みは「スキルを2つ持ってはじめて満額になる」個体になる。
-const LEVEL_CAP = [0, 9, 12, 15, 18, 21, 40];
-function maxLevelOf(m) { return LEVEL_CAP[spOf(m).rank]; }
+function maxLevelOf(m) { return 6 + spOf(m).rank * 3; }
 function expToNext(m) { return m.level * 3 + 10; }
 
 function statsOf(m) {
@@ -357,18 +335,14 @@ function fuseFamily(a, b) {
   return FUSION_TABLE[fusionKey(fa, fb)];
 }
 
-// 同ランクどうしなら1つ上がる、というのが唯一の昇格ルート。
-// ただしランク6(極み)だけは条件が厳しく、「同じ種を2匹」でなければ届かない。
-// 系統が混ざるとランク5で頭打ちになるので、最後は同じ種をもう1匹つくり直す
-// ことになる。闇は光へ抜けるルートがあるため、闇のランク6は存在しない。
+// 同ランクどうしなら1つ上がる、というのが唯一の昇格ルート
 function fuseRank(a, b, childFamily) {
   const ra = spOf(a).rank, rb = spOf(b).rank;
   let r = Math.max(ra, rb);
   if (ra === rb) r += 1;
-  r = clamp(r, 1, MAX_RANK);
+  r = clamp(r, 1, 5);
   if (childFamily === 'dark') r = Math.max(r, 3);
-  if (childFamily === 'light') r = Math.max(r, 5);
-  if (r >= 6 && !(a.sp === b.sp && spOf(a).family === childFamily)) r = 5;
+  if (childFamily === 'light') r = 5;
   return r;
 }
 
@@ -547,8 +521,8 @@ function battle(a, b) {
 function wildFor(area) {
   const sp = pick(speciesOfRank(area.rank));
   return makeMonster(sp.id, {
-    level: Math.max(1, area.wildLv),
-    gene: Math.round(geneCap(area.rank) / 2),
+    level: Math.max(1, area.rank * 2 - 1),
+    gene: (area.rank - 1) * 2,
   });
 }
 
@@ -616,11 +590,10 @@ const CUP = {
 };
 
 // 配合を重ねきった個体の遺伝。相手の強さの基準に使う。
-// ランク6は上限まで育てたランク5どうしを配合したときに実際に出る値。
-function geneCap(rank) { return rank === 6 ? 26 : (rank - 1) * 4; }
+function geneCap(rank) { return (rank - 1) * 4; }
 
 // 上の大会ほど回戦が多い。同ランクを育てきった3匹での優勝率は
-// 実測で 49〜70%(新芽49 / 沼地61 / 岩窟59 / 尖塔70 / 虚無49 / 常世65)。
+// 実測で 48〜74%(新芽48 / 沼地60 / 岩窟57 / 尖塔74 / 虚無48)。
 // 逆に、レベルか遺伝が2割欠けていると、どの大会もほぼ勝てない。
 const CUPS = [
   { id: 1, name: '新芽杯', rank: 1, rounds: 2, prize: 150 },
@@ -628,7 +601,6 @@ const CUPS = [
   { id: 3, name: '岩窟杯', rank: 3, rounds: 4, prize: 1000 },
   { id: 4, name: '尖塔杯', rank: 4, rounds: 4, prize: 2200 },
   { id: 5, name: '虚無杯', rank: 5, rounds: 5, prize: 5000 },
-  { id: 6, name: '常世杯', rank: 6, rounds: 5, prize: 12000 },
 ];
 
 function cupUnlocked(cup, monsters) {
@@ -646,11 +618,11 @@ function roundName(i, total) {
 function cupFoes(cup, i) {
   const t = cup.rounds > 1 ? i / (cup.rounds - 1) : 1;
   const pool = speciesOfRank(cup.rank).filter(s => s.family !== 'light');
-  const maxLv = LEVEL_CAP[cup.rank];
-  // 光にたどり着ける大会では、決勝に必ず1匹まぎれこませる
-  const champion = i === cup.rounds - 1 && cup.rank >= 5;
+  const maxLv = 6 + cup.rank * 3;
+  const isLast = i === cup.rounds - 1;
+  const champion = isLast && cup.rank === 5;
   return Array.from({ length: CUP.entry }, (_, k) => {
-    const sp = (champion && k === 0) ? speciesFor('light', cup.rank) : pick(pool);
+    const sp = (champion && k === 0) ? speciesById('light5') : pick(pool);
     return makeMonster(sp.id, {
       level: Math.max(1, Math.round(maxLv * (CUP.lv0 + (CUP.lv1 - CUP.lv0) * t))),
       gene: Math.round(geneCap(cup.rank) * (CUP.g0 + (CUP.g1 - CUP.g0) * t)),
@@ -1145,8 +1117,7 @@ function viewFuse(view) {
   }
 
   view.appendChild(el('p', 'hint',
-    'レベルの高い親ほど「遺伝」が子に多く乗り、代を重ねるほど強くなる。' +
-    'ランク6(極み)だけは「同じ種を2匹」でなければ届かない。'));
+    'レベルの高い親ほど「遺伝」が子に多く乗り、代を重ねるほど強くなる。'));
 
   const list = el('div', 'list');
   for (const m of roster()) {
