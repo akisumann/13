@@ -25,6 +25,8 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 html { -webkit-text-size-adjust: 100%; }
+/* 横スクロールは常に事故。どこかがはみ出しても画面はずらさない。 */
+body { overflow-x: hidden; }
 
 body {
   background: var(--ground);
@@ -135,13 +137,13 @@ button:focus-visible, .mon:focus-visible {
   max-width: 560px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   background: var(--panel);
   border-top: 1px solid var(--line);
 }
 .tab {
-  font-size: 12.5px;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  letter-spacing: 0.02em;
   color: var(--muted);
   position: relative;
 }
@@ -760,3 +762,77 @@ button:focus-visible, .mon:focus-visible {
 .mon-nature .nat { color: var(--text); font-weight: 600; }
 .mon-nature .up { color: #6bd39a; font-family: var(--mono); }
 .mon-nature .down { color: var(--danger); font-family: var(--mono); }
+
+/* ===== 放牧 ===== */
+.field {
+  display: grid;
+  /* minmax(0,1fr) にしないと、マスの中身が幅の下限になって横にはみ出す */
+  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  gap: 2px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.fc {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  background: var(--ground);
+  position: relative;
+}
+.fc .g { font-size: 11px; color: var(--line-hi); font-family: var(--mono); }
+/* 地形。色は薄く、モンスターより目立たせない */
+.fc.t1 { background: color-mix(in srgb, #5fd07a 9%, var(--ground)); }
+.fc.t2 { background: color-mix(in srgb, #d0a24a 10%, var(--ground)); }
+.fc.t3 { background: color-mix(in srgb, #4aa8ff 12%, var(--ground)); }
+.fc.t4 { background: color-mix(in srgb, #f2607a 12%, var(--ground)); }
+.fc .emblem.on-field {
+  width: 88%;
+  height: 88%;
+  border-width: 1px;
+}
+.fc .stack {
+  position: absolute;
+  right: 1px; bottom: 0;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text);
+}
+
+.away-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 10px;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.away-row .btn { flex: 0 0 auto; }
+.away-row .mon-main { min-width: 0; }
+.away-row .mon-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mon-nature .away {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--ground);
+  background: var(--muted);
+  border-radius: 3px;
+  padding: 0 5px;
+}
+
+.gauges { display: flex; gap: 10px; margin-top: 4px; }
+.gauge { display: flex; align-items: center; gap: 5px; flex: 1 1 0; min-width: 0; }
+.gauge .gl { font-size: 10px; color: var(--muted); flex: 0 0 auto; }
+.gauge .gt {
+  flex: 1 1 auto;
+  height: 4px;
+  background: var(--line);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.gauge .gt i { display: block; height: 100%; background: var(--muted); }
+.gauge.bag .gt i { background: var(--gold); }
+.gauge.tired .gt i { background: var(--danger); }

@@ -269,6 +269,75 @@ const AREAS = [
     lore: '底がない。落ちた者の数は、誰も数えていない。' },
 ];
 
+// =====================================================================
+// 放牧
+//
+// 探索が「連れて行って1戦させる」なら、放牧は「置いてくる」。
+// 預けたモンスターはエリアの上を勝手に歩き、拾い、揉め、休む。
+// プレイヤーは誰をどこへ置くかだけ決めて、あとは他のことをしていればいい。
+//
+// 何をするかは性格が決める。せっかちはよく歩き、きようは細かく拾い、
+// むこうみずは巣に突っ込む。放ってあるので、いい結果ばかりにはならない。
+//
+// 時間は実時間で進む。閉じているあいだのぶんも、戻ってきたときにまとめて
+// 歩かせる(上限あり)。放牧は「遅いが手が空く」道で、稼ぎは探索より薄い。
+// =====================================================================
+
+const PASTURE = {
+  cols: 11, rows: 7,
+  tickMs: 30000,              // 1歩ぶんの実時間
+  offlineCap: 6 * 60 * 60e3,  // 戻ってきたときにまとめて進める上限(6時間)
+  slots: 4,                   // 同時に預けられる数
+  bagMax: 20,                 // 抱えられる量。いっぱいになると持ちきれず、以降は増えない
+  tiredMax: 12,               // 疲れきると泉を探して休む
+  logMax: 40,
+  // 見つかるのは稀。そのぶん1回が大きい。荷が満杯になるまで6時間ほどかかる。
+  // 数値探索で、6時間預けて 岩窟回廊なら 約500G + 約440exp に落としてある
+  // (同じ時間で探索を連打すれば桁違いに稼げる。放牧は遅いが手が空く道)。
+  findRate: { 0: 0.016, 1: 0.045, 2: 0.055 },
+  findGold: 0.9,              // 1回の拾い物 = エリアの平均報酬 × これ
+  findExp: 0.35,              // 同じく経験値
+  fightExp: 0.6,              // 巣で勝ったときの経験値(野生1匹ぶんに対して)
+};
+
+// 地形: 0 平地 / 1 草むら / 2 岩 / 3 泉 / 4 巣
+const TERRAIN = [
+  { id: 0, name: '平地',   glyph: '·' },
+  { id: 1, name: '草むら', glyph: '"' },
+  { id: 2, name: '岩',     glyph: '▲' },
+  { id: 3, name: '泉',     glyph: '◇' },
+  { id: 4, name: '巣',     glyph: '✳' },
+];
+
+// エリアごとに決まった地形。同じエリアはいつ見ても同じ地図になる。
+function pastureMap(areaId) {
+  const R = seededRng(seedOf('pasture' + areaId));
+  const { cols, rows } = PASTURE;
+  const map = [];
+  for (let y = 0; y < rows; y++) {
+    const row = [];
+    for (let x = 0; x < cols; x++) {
+      const r = R();
+      row.push(r < 0.34 ? 1 : r < 0.50 ? 2 : r < 0.58 ? 3 : r < 0.70 ? 4 : 0);
+    }
+    map.push(row);
+  }
+  return map;
+}
+
+// 性格から歩き方と得意な地形を決める。得意に当たると実入りが増える。
+function pastureStyle(m) {
+  const up = natureOf(m).up;
+  return {
+    // すばやさ自慢はよく歩き、HP・ぼうぎょ自慢は腰が重い
+    move: up === 'spd' ? 0.95 : (up === 'hp' || up === 'def') ? 0.5 : 0.75,
+    // 探しものが得意な地形
+    likes: up === 'dex' ? 2 : up === 'int' ? 1 : up === 'mp' ? 3 : up === 'atk' ? 4 : -1,
+    // 巣に自分から突っ込むか
+    brave: up === 'atk' ? 0.26 : (up === 'hp' || up === 'def') ? 0.14 : 0.09,
+  };
+}
+
 // ===== 商店 =====
 // 金で買えるのは「材料と制御」だけ。ステータスそのものは売らない。
 // 系統ごとの勝率も大会の相手も遺伝とレベルを基準に組んであるので、
@@ -725,6 +794,113 @@ function explore(party, area, canCapture) {
   return out;
 }
 
+// 1匹を1歩ぶん進める。状態は u(放牧中の記録)にだけ書き、
+// モンスター本体には触らない(呼び戻すときにまとめて渡す)。
+function pastureStep(u, m, area, map, out) {
+  const st = pastureStyle(m);
+  const { cols, rows } = PASTURE;
+  const name = nameOf(m);
+  const say = (t) => out.push(`${name} は ${t}`);
+
+  // 疲れきっていたら泉を探し、見つからなければその場で休む
+  const resting = u.tired >= PASTURE.tiredMax;
+  const full = u.bag >= PASTURE.bagMax;
+
+  // 歩く。休んでいるときと荷物がいっぱいのときは動きが鈍る
+  const moveP = resting ? 0.6 : full ? 0.3 : st.move;
+  if (Math.random() < moveP) {
+    // 泉を探しているときだけ、近い泉のほうへ寄る
+    let dx = ri(-1, 1), dy = ri(-1, 1);
+    if (resting) {
+      let best = null;
+      for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+        if (map[y][x] !== 3) continue;
+        const d = Math.abs(x - u.x) + Math.abs(y - u.y);
+        if (!best || d < best.d) best = { x, y, d };
+      }
+      if (best) { dx = Math.sign(best.x - u.x); dy = Math.sign(best.y - u.y); }
+    }
+    u.x = clamp(u.x + dx, 0, cols - 1);
+    u.y = clamp(u.y + dy, 0, rows - 1);
+  }
+
+  const t = map[u.y][u.x];
+  const lucky = st.likes === t;
+
+  if (t === 3) {                                   // 泉
+    if (u.tired > 0) { u.tired = Math.max(0, u.tired - (lucky ? 4 : 2)); say('泉で休んでいる'); }
+    return;
+  }
+  if (resting) { u.tired = Math.max(0, u.tired - 1); return; }
+  if (full) {                                      // 持ちきれない。呼ばれるまで待つ。
+    if (!u.told) { u.told = 1; say('もう持ちきれない'); }
+    return;
+  }
+
+  const avg = (area.gold[0] + area.gold[1]) / 2;
+
+  if (t === 4) {                                   // 巣
+    if (Math.random() > st.brave) { u.tired += 1; return; }
+    const wild = wildFor(area);
+    const win = battle([m], [wild]).win;
+    u.tired += win ? 2 : 4;
+    if (!win) { say(`${spOf(wild).name} に追い返された`); return; }
+    u.bag += 2;
+    u.exp += Math.round((spOf(wild).rank * 20 + wild.level * 4) * PASTURE.fightExp);
+    say(`${spOf(wild).name} を追い払った`);
+    // まれになつく。牧場に空きが無ければ連れて帰れない。
+    if (Math.random() < CAPTURE_RATE * 0.35) {
+      u.found.push({ sp: wild.sp, gene: wild.gene, skills: wild.skills.slice(), nature: wild.nature });
+      say(`${spOf(wild).name} がついてきた`);
+    }
+    return;
+  }
+
+  // 草むら・岩・平地。見つかるのは稀で、そのぶん1回が大きい。
+  u.tired += 1;
+  const chance = (PASTURE.findRate[t] || 0) * (lucky ? 2 : 1);
+  if (Math.random() >= chance) return;
+  const swing = 0.6 + Math.random() * 0.8;
+  const gain = Math.max(1, Math.round(avg * PASTURE.findGold * swing));
+  u.gold += gain;
+  u.exp += Math.max(1, Math.round(avg * PASTURE.findExp * swing));
+  u.bag += 1;
+  say(lucky ? `${TERRAIN[t].name}で 何かを掘り当てた(+${gain} G)`
+            : `${TERRAIN[t].name}を 漁っていた(+${gain} G)`);
+
+  // 触媒を拾うことがある。狙って出せないぶん、たまに嬉しい。
+  if (Math.random() < 0.05 * (lucky ? 2 : 1)) {
+    const id = pick(Object.keys(ITEMS));
+    u.items[id] = (u.items[id] || 0) + 1;
+    say(`${ITEMS[id].name} を拾った`);
+  }
+}
+
+// 経過した実時間ぶんだけ歩かせる。閉じているあいだのぶんも進むが上限がある。
+function pastureAdvance(now) {
+  const p = S.pasture;
+  if (!p || !p.units.length) { if (p) p.last = now; return 0; }
+  const area = AREAS.find(a => a.id === p.area) || AREAS[0];
+  const map = pastureMap(p.area);
+  const elapsed = Math.min(PASTURE.offlineCap, Math.max(0, now - p.last));
+  const steps = Math.floor(elapsed / PASTURE.tickMs);
+  if (steps <= 0) return 0;
+
+  const out = [];
+  for (let i = 0; i < steps; i++) {
+    for (const u of p.units) {
+      const m = S.monsters.find(x => x.uid === u.uid);
+      if (!m) continue;
+      pastureStep(u, m, area, map, out);
+    }
+  }
+  p.last += steps * PASTURE.tickMs;
+  if (out.length) {
+    p.log = out.slice(-PASTURE.logMax).concat(p.log).slice(0, PASTURE.logMax);
+  }
+  return steps;
+}
+
 function areaUnlocked(area, monsters) {
   if (area.rank <= 1) return true;
   return monsters.some(m => spOf(m).rank >= area.rank - 1);
@@ -939,7 +1115,39 @@ function newState() {
     rivals: {},    // 大会ID → { met: 決勝で会ったか, beaten: 勝ったか, losses: 負けた回数 }
     items: {},     // 触媒ID → 個数
     barn: 0,       // 牧場を広げた回数
+    pasture: newPasture(1),
   };
+}
+
+function newPasture(areaId) {
+  return { area: areaId, units: [], last: nowMs(), log: [] };
+}
+function nowMs() { return Date.now(); }
+
+// 放牧の記録は「誰を預けたか」で牧場と繋がっているので、
+// いなくなった個体ぶんは落として読む。
+function loadPasture(p, monsters) {
+  const base = newPasture(1);
+  if (!p || typeof p !== 'object') return base;
+  const ids = new Set((monsters || []).map(m => m.uid));
+  const area = AREAS.some(a => a.id === p.area) ? p.area : 1;
+  const units = (Array.isArray(p.units) ? p.units : [])
+    .filter(u => u && ids.has(u.uid))
+    .slice(0, PASTURE.slots)
+    .map(u => ({
+      uid: u.uid,
+      x: clamp(u.x | 0, 0, PASTURE.cols - 1),
+      y: clamp(u.y | 0, 0, PASTURE.rows - 1),
+      gold: Math.max(0, u.gold | 0),
+      exp: Math.max(0, u.exp | 0),
+      bag: clamp(u.bag | 0, 0, PASTURE.bagMax),
+      tired: clamp(u.tired | 0, 0, PASTURE.tiredMax),
+      items: (u.items && typeof u.items === 'object') ? u.items : {},
+      found: Array.isArray(u.found) ? u.found.filter(f => f && speciesById(f.sp)) : [],
+    }));
+  // 先の時刻が入っていたら現在に丸める(端末の時計がずれていた場合)
+  const last = Math.min(nowMs(), Number(p.last) || nowMs());
+  return { area, units, last, log: Array.isArray(p.log) ? p.log.slice(0, PASTURE.logMax) : [] };
 }
 
 function discover(speciesId) {
@@ -987,6 +1195,7 @@ function load() {
       rivals: d.rivals || {},
       items: d.items || {},
       barn: Math.min(BARN_STEPS.length, d.barn || 0),
+      pasture: loadPasture(d.pasture, d.monsters),
     };
   } catch (e) { return null; }
 }
@@ -1075,6 +1284,60 @@ function doCup(party, cup) {
 function eggPrice(rank, family) {
   const tier = EGG_TIERS.find(t => t.rank === rank) || EGG_TIERS[0];
   return Math.round(tier.price * (family ? EGG_PICK_MUL : 1));
+}
+
+// 放牧に出しているあいだ、その個体は探索にも大会にも出せない。
+function isPastured(uid) {
+  return !!(S.pasture && S.pasture.units.some(u => u.uid === uid));
+}
+function pasturedMonsters() {
+  return S.pasture ? S.pasture.units.map(u => S.monsters.find(m => m.uid === u.uid)).filter(Boolean) : [];
+}
+function freeMonsters() { return S.monsters.filter(m => !isPastured(m.uid)); }
+
+function doPasture(mon, areaId) {
+  const p = S.pasture;
+  if (isPastured(mon.uid) || p.units.length >= PASTURE.slots) return null;
+  // 場所を変えるときは、いま出ている全員を一度呼び戻す
+  if (areaId != null && areaId !== p.area && p.units.length) return null;
+  if (areaId != null) p.area = areaId;
+  pastureAdvance(nowMs());
+  p.units.push({
+    uid: mon.uid,
+    x: ri(0, PASTURE.cols - 1), y: ri(0, PASTURE.rows - 1),
+    gold: 0, exp: 0, bag: 0, tired: 0, items: {}, found: [],
+  });
+  return { area: AREAS.find(a => a.id === p.area) };
+}
+
+// 1匹だけ呼び戻して、抱えていたものを受け取る。
+function doRecall(uid) {
+  const p = S.pasture;
+  pastureAdvance(nowMs());
+  const i = p.units.findIndex(u => u.uid === uid);
+  if (i < 0) return null;
+  const u = p.units.splice(i, 1)[0];
+  const m = S.monsters.find(x => x.uid === uid);
+
+  S.gold += u.gold;
+  let ups = 0;
+  if (m) ups = gainExp(m, u.exp);
+  for (const [id, n] of Object.entries(u.items)) S.items[id] = (S.items[id] || 0) + n;
+
+  // ついてきた個体は、牧場に空きがある分だけ連れて帰れる
+  const joined = [], missed = [];
+  for (const f of u.found) {
+    if (rosterFull()) { missed.push(f); continue; }
+    const nm = makeMonster(f.sp, { gene: f.gene, skills: f.skills.slice(), nature: f.nature, origin: 'wild' });
+    S.monsters.push(nm);
+    joined.push({ monster: nm, isNew: discover(nm.sp) });
+  }
+  return { unit: u, monster: m, ups, joined, missed, items: u.items };
+}
+
+function doRecallAll() {
+  const ids = S.pasture.units.map(u => u.uid);
+  return ids.map(id => doRecall(id)).filter(Boolean);
 }
 
 function doBuyEgg(rank, family) {
@@ -1352,6 +1615,7 @@ function monRow(m, opts) {
     ((m.gen || 1) > 1 ? ` ・ ${m.gen}代目` : '')));
   const nat = natureOf(m);
   const nl = el('div', 'mon-nature');
+  if (isPastured(m.uid)) nl.appendChild(el('span', 'away', '放牧中'));
   nl.appendChild(el('span', 'nat', `〈${nat.name}〉`));
   if (nat.up) {
     nl.appendChild(el('span', 'up', `${STATS.find(s => s.key === nat.up).label}↑`));
@@ -1632,7 +1896,9 @@ function viewRanch(view) {
     d.appendChild(el('p', 'hint',
       '名前をつけると、配合したときに子の系譜へ残る。空にすれば種の名前に戻る。'));
 
-    if (S.monsters.length > 1) {
+    if (isPastured(m.uid)) {
+      d.appendChild(el('p', 'hint', '放牧に出ている。呼び戻すまでは配合にも探索にも使えない。'));
+    } else if (S.monsters.length > 1) {
       const rel = el('button', 'btn ghost', 'にがす');
       rel.addEventListener('click', (ev) => {
         ev.stopPropagation();
@@ -1658,7 +1924,8 @@ function viewFuse(view) {
   head.appendChild(el('span', 'note', '2匹 → 1匹'));
   view.appendChild(head);
 
-  const picked = UI.picks.map(u => S.monsters.find(m => m.uid === u)).filter(Boolean);
+  const picked = UI.picks.map(u => S.monsters.find(m => m.uid === u))
+    .filter(m => m && !isPastured(m.uid));
   UI.picks = picked.map(m => m.uid);
 
   const panel = el('div', 'panel');
@@ -1764,7 +2031,7 @@ function viewFuse(view) {
   }
 
   const list = el('div', 'list');
-  for (const m of roster()) {
+  for (const m of roster().filter(m => !isPastured(m.uid))) {
     const idx = UI.picks.indexOf(m.uid);
     list.appendChild(monRow(m, {
       selected: idx >= 0,
@@ -1857,7 +2124,7 @@ function viewExplore(view) {
   view.appendChild(out);
 
   // 編成(取得順で固定)。選んだ数だけ野生も出てくる。
-  UI.party = UI.party.filter(u => S.monsters.some(m => m.uid === u));
+  UI.party = UI.party.filter(u => S.monsters.some(m => m.uid === u) && !isPastured(u));
   if (!UI.party.length && S.monsters.length) UI.party = [roster()[0].uid];
   const party = UI.party.map(u => S.monsters.find(m => m.uid === u));
 
@@ -1868,7 +2135,7 @@ function viewExplore(view) {
   panel.appendChild(ph);
 
   const list = el('div', 'list');
-  for (const m of roster()) {
+  for (const m of roster().filter(m => !isPastured(m.uid))) {
     const idx = UI.party.indexOf(m.uid);
     list.appendChild(monRow(m, {
       selected: idx >= 0,
@@ -1897,6 +2164,159 @@ function viewExplore(view) {
     render();
   });
   setAction(go);
+}
+
+// --------------------------------------------- 放牧
+function viewPasture(view) {
+  pastureAdvance(nowMs());
+  const p = S.pasture;
+  const out = pasturedMonsters();
+
+  const head = el('div', 'head');
+  head.appendChild(el('h2', null, '放牧'));
+  head.appendChild(el('span', 'note', `${out.length} / ${PASTURE.slots} 匹`));
+  view.appendChild(head);
+
+  // エリア。誰か出ているあいだは変えられない。
+  const chips = el('div', 'chips');
+  for (const a of AREAS) {
+    const ok = areaUnlocked(a, S.monsters);
+    const b = el('button', 'chip' + (p.area === a.id ? ' is-on' : ''));
+    if (!ok || out.length) b.disabled = true;
+    b.appendChild(el('span', null, ok ? a.name : '？？？'));
+    b.appendChild(el('span', 'r', 'R' + a.rank));
+    b.addEventListener('click', () => { p.area = a.id; save(); render(); });
+    chips.appendChild(b);
+  }
+  view.appendChild(chips);
+  if (!AREAS.some(a => a.id === p.area && areaUnlocked(a, S.monsters))) p.area = 1;
+  const area = AREAS.find(a => a.id === p.area);
+  view.appendChild(el('div', 'area-desc',
+    out.length ? `${area.name} ・ 場所を変えるには全員を呼び戻す`
+      : `${area.name} ・ ${Math.round(PASTURE.tickMs / 1000)}秒で1歩 ・ 閉じているあいだも進む(最大${PASTURE.offlineCap / 3600e3}時間)`));
+
+  // 地図
+  const map = pastureMap(p.area);
+  const grid = el('div', 'field');
+  grid.style.setProperty('--cols', PASTURE.cols);
+  const at = {};
+  for (const u of p.units) (at[u.y + ':' + u.x] = at[u.y + ':' + u.x] || []).push(u);
+  for (let y = 0; y < PASTURE.rows; y++) for (let x = 0; x < PASTURE.cols; x++) {
+    const t = map[y][x];
+    const cell = el('div', 'fc t' + t);
+    const here = at[y + ':' + x];
+    if (here && here.length) {
+      const m = S.monsters.find(mm => mm.uid === here[0].uid);
+      if (m) {
+        const e = emblem(m, 'sm');
+        e.classList.add('on-field');
+        cell.appendChild(e);
+        if (here.length > 1) cell.appendChild(el('span', 'stack', '+' + (here.length - 1)));
+      }
+    } else {
+      cell.appendChild(el('span', 'g', TERRAIN[t].glyph));
+    }
+    grid.appendChild(cell);
+  }
+  view.appendChild(grid);
+  view.appendChild(el('p', 'hint',
+    TERRAIN.map(t => `${t.glyph} ${t.name}`).join(' ・ ') +
+    ' — 何をするかは性格が決める。すばやさ自慢はよく歩き、きよう自慢は岩を、こうげき自慢は巣を好む。'));
+
+  // 出ている面々
+  if (out.length) {
+    const panel = el('div', 'panel');
+    const ph = el('div', 'head');
+    ph.appendChild(el('h2', null, '出ている'));
+    ph.appendChild(el('span', 'note', '呼び戻すと受け取れる'));
+    panel.appendChild(ph);
+    for (const u of p.units) {
+      const m = S.monsters.find(x => x.uid === u.uid);
+      if (!m) continue;
+      const row = el('div', 'away-row');
+      row.appendChild(emblem(m));
+      const main = el('div', 'mon-main');
+      main.appendChild(el('div', 'mon-name', nameOf(m)));
+      main.appendChild(el('div', 'mon-sub',
+        `${u.gold} G ・ ${u.exp} exp` +
+        (Object.keys(u.items).length ? ' ・ ' + Object.entries(u.items).map(([k,n]) => `${ITEMS[k].name}${n}`).join(' ') : '') +
+        (u.found.length ? ` ・ ${u.found.length}匹がついてきた` : '')));
+      const bar = el('div', 'gauges');
+      const gauge = (label, v, max, cls) => {
+        const g = el('div', 'gauge ' + cls);
+        g.appendChild(el('span', 'gl', label));
+        const track = el('div', 'gt'); const fill = el('i');
+        fill.style.width = clamp(v / max * 100, 0, 100) + '%';
+        track.appendChild(fill); g.appendChild(track);
+        return g;
+      };
+      bar.appendChild(gauge('荷', u.bag, PASTURE.bagMax, 'bag'));
+      bar.appendChild(gauge('疲', u.tired, PASTURE.tiredMax, 'tired'));
+      main.appendChild(bar);
+      row.appendChild(main);
+      const back = el('button', 'btn ghost', '呼び戻す');
+      back.addEventListener('click', () => {
+        const r = doRecall(u.uid);
+        if (!r) return;
+        const bits = [`${r.unit.gold} G`];
+        if (r.ups) bits.push(`Lv+${r.ups}`);
+        for (const j of r.joined) bits.push(`${spOf(j.monster).name}${j.isNew ? '(新種)' : ''}`);
+        if (r.missed.length) bits.push(`${r.missed.length}匹は牧場が満杯で置いてきた`);
+        toast(`${nameOf(m)} が帰ってきた — ${bits.join(' ・ ')}`);
+        resort(); save(); render();
+      });
+      row.appendChild(back);
+      panel.appendChild(row);
+    }
+    view.appendChild(panel);
+  }
+
+  // 預ける
+  const free = roster().filter(m => !isPastured(m.uid));
+  if (p.units.length < PASTURE.slots && free.length) {
+    const panel = el('div', 'panel');
+    const ph = el('div', 'head');
+    ph.appendChild(el('h2', null, '預ける'));
+    ph.appendChild(el('span', 'note', `あと${PASTURE.slots - p.units.length}匹`));
+    panel.appendChild(ph);
+    const list = el('div', 'list');
+    for (const m of free) {
+      list.appendChild(monRow(m, {
+        onClick: () => {
+          if (!doPasture(m, p.area)) return;
+          toast(`${nameOf(m)} を ${area.name} に放した`);
+          save(); render();
+        },
+      }));
+    }
+    panel.appendChild(list);
+    panel.appendChild(el('p', 'hint',
+      '放牧の実入りは探索よりずっと薄い。手が空くぶんの代わりで、稼ぎたいなら連れて行ったほうが早い。'));
+    view.appendChild(panel);
+  }
+
+  // 見聞き
+  const logPanel = el('div', 'panel');
+  const lh = el('div', 'head');
+  lh.appendChild(el('h2', null, '知らせ'));
+  logPanel.appendChild(lh);
+  const log = el('div', 'log');
+  if (!p.log.length) log.appendChild(el('div', 'msg-dim', 'まだ何も起きていない。'));
+  else for (const line of p.log.slice(0, 12)) log.appendChild(el('div', null, line));
+  logPanel.appendChild(log);
+  view.appendChild(logPanel);
+
+  if (out.length) {
+    const all = el('button', 'btn primary', `全員を呼び戻す(${out.length}匹)`);
+    all.addEventListener('click', () => {
+      const rs = doRecallAll();
+      const gold = rs.reduce((t, r) => t + r.unit.gold, 0);
+      const joined = rs.reduce((t, r) => t + r.joined.length, 0);
+      toast(`${rs.length}匹が帰ってきた — ${gold} G` + (joined ? ` ・ ${joined}匹がついてきた` : ''));
+      resort(); save(); render();
+    });
+    setAction(all);
+  }
 }
 
 // --------------------------------------------- 大会
@@ -1990,7 +2410,7 @@ function viewCup(view) {
   view.appendChild(out);
 
   // 編成。相手も同数出るので、欠けたまま出ると勝ち抜けない。
-  UI.cupTeam = UI.cupTeam.filter(u => S.monsters.some(m => m.uid === u));
+  UI.cupTeam = UI.cupTeam.filter(u => S.monsters.some(m => m.uid === u) && !isPastured(u));
   const panel = el('div', 'panel');
   const ph = el('div', 'head');
   ph.appendChild(el('h2', null, '出場'));
@@ -1998,7 +2418,7 @@ function viewCup(view) {
   panel.appendChild(ph);
 
   const list = el('div', 'list');
-  for (const m of roster()) {
+  for (const m of roster().filter(m => !isPastured(m.uid))) {
     const idx = UI.cupTeam.indexOf(m.uid);
     list.appendChild(monRow(m, {
       selected: idx >= 0,
@@ -2123,6 +2543,7 @@ function render() {
   if (UI.tab === 'ranch') viewRanch(view);
   else if (UI.tab === 'fuse') viewFuse(view);
   else if (UI.tab === 'explore') viewExplore(view);
+  else if (UI.tab === 'pasture') viewPasture(view);
   else if (UI.tab === 'cup') viewCup(view);
   else viewDex(view);
 }
@@ -2141,6 +2562,15 @@ function init() {
     });
   }
   render();
+  // 放牧は実時間で進む。開いているあいだは静かに描き直す。
+  if (typeof setInterval !== 'undefined') {
+    const t = setInterval(() => {
+      if (UI.tab !== 'pasture' || !S.pasture.units.length) return;
+      if (pastureAdvance(nowMs()) > 0) { save(); render(); }
+    }, PASTURE.tickMs);
+    // Node で読み込んだときに、この時計だけでプロセスが終わらなくなるのを防ぐ
+    if (t && typeof t.unref === 'function') t.unref();
+  }
 }
 
 if (typeof document !== 'undefined') init();
