@@ -583,21 +583,20 @@ const CUP = {
   mpHeal: 1.00, // 同じくMP
   lv0:   0.35, // 一回戦の相手のレベル(そのランクの上限に対する割合)
   lv1:   0.95, // 決勝の相手のレベル
-  // 遺伝は「配合を重ねきった個体」を 1.0 として、その何割かで出す。
-  // ランクによらず同じ割合になるので、どの大会でも詰め方の手ごたえがそろう。
-  // 決勝の相手はこちらを少し上回る(1.02)。5回戦を消耗しながら抜けてくる側が
-  // まったく同じ仕上がりだと、優勝が運任せの分かれ目になってしまうため。
-  g0:    0.40, // 一回戦の相手の遺伝
-  g1:    1.02, // 決勝の相手の遺伝
+  g0:    0.40, // 一回戦の相手の遺伝(こちらの平均に対する割合)
+  // 決勝の相手はこちらと同じところまで配合を詰めてくる(遺伝 +0)。
+  // それでも五分にならないのは、傷を持ち越すのがこちらだけだから。
+  // ここを倍率での上乗せにすると、遺伝に上限が無いせいで代を重ねるほど
+  // 差額まで膨らみ、育てるほど優勝しにくくなってしまう。
+  geneEdge: 0,
 };
 
 // 配合を重ねきった個体の遺伝。相手の強さの基準に使う。
 function geneCap(rank) { return (rank - 1) * 4; }
 
 // 上の大会ほど回戦が多く、上の大会ほど難しい。同ランクを育てきった3匹での
-// 優勝率は実測で 新芽50 / 沼地52 / 岩窟41 / 尖塔43 / 虚無28 %。
-// 虚無杯だけは育てきりでも4回に1回で、そこから先は遺伝を積み増して詰める。
-// 逆に、レベルか遺伝が2割欠けていると、どの大会もほぼ勝てない。
+// 優勝率は実測で 新芽52 / 沼地61 / 岩窟49 / 尖塔42 / 虚無31 %。
+// 相手はこちらの編成に合わせて作られるので、この数字は何代重ねても変わらない。
 const CUPS = [
   { id: 1, name: '新芽杯', rank: 1, rounds: 2, prize: 150 },
   { id: 2, name: '沼地杯', rank: 2, rounds: 3, prize: 420 },
@@ -616,19 +615,36 @@ function roundName(i, total) {
   return ['一回戦', '二回戦', '三回戦', '四回戦'][i] || `${i + 1}回戦`;
 }
 
-// 回戦が進むほど、相手のレベルと遺伝が上がっていく。
-// 最後の大会の決勝だけは、勝ち取った側と同じ土俵に立たせるため光が出る。
-function cupFoes(cup, i) {
+// 出場者の顔ぶれは、こちらの編成に合わせて決まる。
+//
+// 遺伝には上限が無い。上限まで育てたランク5どうしを配合するたびに +10 され、
+// 5代目には遺伝60(総合力950前後)まで伸びる。相手を固定値で置くと、
+// 数代重ねただけで置いていかれて大会が作業になってしまう。
+// そこで「こちらの編成の平均」を基準にし、回戦が進むほどそこへ近づける。
+//
+// 下限は大会のランク相応の強さで、弱い個体で出ても相手は手を抜かない
+// (わざと格下で出て賞金だけ取る、ができないようにするため)。
+// レベルは相手自身のランクの上限で頭打ちになるので、格上の編成で
+// 下位の大会に出れば、これまでどおり楽に勝てる。
+function cupFoes(cup, i, party) {
+  const team = party && party.length ? party : null;
+  const avg = (f) => team ? team.reduce((s, m) => s + f(m), 0) / team.length : 0;
+  const baseLv = Math.max(6 + cup.rank * 3, avg(m => m.level));
+  const baseGene = Math.max(geneCap(cup.rank), avg(m => m.gene));
+
   const t = cup.rounds > 1 ? i / (cup.rounds - 1) : 1;
+  const lvRate = CUP.lv0 + (CUP.lv1 - CUP.lv0) * t;
+  // 一回戦は baseGene の g0 倍から始まり、決勝で baseGene + geneEdge になる
+  const gene0 = baseGene * CUP.g0, gene1 = baseGene + CUP.geneEdge;
   const pool = speciesOfRank(cup.rank).filter(s => s.family !== 'light');
-  const maxLv = 6 + cup.rank * 3;
-  const isLast = i === cup.rounds - 1;
-  const champion = isLast && cup.rank === 5;
+  const champion = i === cup.rounds - 1 && cup.rank === 5;
+
   return Array.from({ length: CUP.entry }, (_, k) => {
     const sp = (champion && k === 0) ? speciesById('light5') : pick(pool);
+    const cap = maxLevelOf({ sp: sp.id });
     return makeMonster(sp.id, {
-      level: Math.max(1, Math.round(maxLv * (CUP.lv0 + (CUP.lv1 - CUP.lv0) * t))),
-      gene: Math.round(geneCap(cup.rank) * (CUP.g0 + (CUP.g1 - CUP.g0) * t)),
+      level: clamp(Math.round(baseLv * lvRate), 1, cap),
+      gene: Math.round(gene0 + (gene1 - gene0) * t),
     });
   });
 }
@@ -643,7 +659,7 @@ function runCup(party, cup) {
     const alive = mine.filter(c => c.hp > 0);
     if (!alive.length) break;
 
-    const foes = cupFoes(cup, i);
+    const foes = cupFoes(cup, i, team);
     const res = battle(alive, foes);
     rounds.push({
       name: roundName(i, cup.rounds),
