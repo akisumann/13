@@ -1567,8 +1567,11 @@ const PEN = {
   nap: 0.14,                // その場でうずくまる割合
   near: 11,                 // これより近いと絡む(%)
   chat: 0.30,               // 近づいたとき何か起きる割合
-  seek: 0.45,               // 器具に用ができる割合
-  play: 0.35,               // 器具のそばで何かする割合
+  seek: 0.45,               // 器具や地形に用ができる割合
+  play: 0.35,               // そばで何かする割合
+  crowd: 3,                 // これだけ集まっている先には、もう寄っていかない
+  stay: 4,                  // 着いてから離れるまでの歩数
+  bored: [7, 16],           // 離れたあと、次に用ができるまでの歩数
 };
 
 // 性格ごとの歩き方。落ち着きの無さと歩幅だけ変える。
@@ -1742,6 +1745,20 @@ function penStep() {
   const fx = fixtureSpots();
   const fxIds = Object.keys(fx);
   const targets = { ...fx, ...terrainSpots() };
+  const isNear = (p, t) => Math.abs(p.x - t.x) <= PEN.near && Math.abs(p.y - t.y) <= PEN.near;
+
+  // 何匹たかっているかを数える。混んでいる先には寄っていかない。
+  // 全員が同じ器具に吸い寄せられるとダマになって、見ていて面白くない。
+  //
+  // 「もう着いている数」だけで数えると、同時に向かっている連中は誰も
+  // 弾かれずに全員が着いてしまう。向かっている最中のぶんも数に入れる。
+  const crowd = {};
+  for (const [id, t] of Object.entries(targets)) {
+    crowd[id] = S.monsters.filter(m => {
+      const q = penSpot(m.uid);
+      return q.want === id || isNear(q, t);
+    }).length;
+  }
 
   for (const m of S.monsters) {
     const node = UI.penNodes[m.uid];
@@ -1751,12 +1768,26 @@ function penStep() {
     if (Math.random() < PEN.nap) p.nap = !p.nap;
     if (!p.nap && Math.random() >= st.still) {
       // 器具に用があるときはそちらへ寄る。好きな系統ならなお寄る。
-      if (!p.want || !targets[p.want] || Math.random() < 0.25) {
-        p.want = null;
-        const ids = Object.keys(targets);
-        if (ids.length && Math.random() < PEN.seek) {
+      const drop = () => { if (p.want && crowd[p.want] != null) crowd[p.want]--; p.want = null; p.stay = 0; };
+
+      // 用が済んだあとは、しばらく他を回る。居座られると次の子が寄れず、
+      // 好きな器具の前が渋滞して見ていて面白くない。
+      if (p.bored > 0) { p.bored--; drop(); }
+
+      if (p.want) {
+        if (!targets[p.want]) drop();
+        else if (isNear(p, targets[p.want])) {
+          // 着いた。少し居たら満足して離れる。
+          p.stay = (p.stay || 0) + 1;
+          if (p.stay > PEN.stay) { drop(); p.bored = ri(PEN.bored[0], PEN.bored[1]); }
+        } else p.stay = 0;
+      }
+      if (!p.want && !p.bored && Math.random() < PEN.seek) {
+        const ids = Object.keys(targets).filter(id => crowd[id] < PEN.crowd);
+        if (ids.length) {
           const mine = ids.filter(id => (FIXTURES[id] || TERRAINS[id]).likes === spOf(m).family);
           p.want = pick(mine.length && Math.random() < 0.7 ? mine : ids);
+          crowd[p.want]++;
         }
       }
       let dx, dy;
@@ -1799,7 +1830,6 @@ function penStep() {
       if (Math.abs(p.x - t.x) > PEN.near || Math.abs(p.y - t.y) > PEN.near) continue;
       if (Math.random() >= PEN.play) continue;
       said.push(`${nameOf(m)} が ${FIXTURES[id].name} ${pick(FIXTURES[id].acts)}`);
-      p.want = null;
       break;
     }
   }
