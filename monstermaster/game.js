@@ -388,7 +388,7 @@ function combatant(m) {
     const def = SKILLS[id];
     if (def.stat) s[def.stat] = Math.round(s[def.stat] * (1 + def.per * lv));
   }
-  return { name: spOf(m).name, ...s, maxHp: s.hp, sk, poison: 0 };
+  return { name: spOf(m).name, ...s, maxHp: s.hp, maxMp: s.mp, sk, poison: 0 };
 }
 
 // 1回の攻撃。7ステータスとスキルがすべて常時効果として噛み合う。
@@ -454,9 +454,15 @@ function strike(atk, dfn, log) {
   log.push(`${atk.name} の攻撃 → ${dmg} ダメージ${note}(${dfn.name} 残り ${Math.max(0, dfn.hp)})`);
 }
 
+// モンスターでも、すでに組み立てた戦闘用の駒でも受け取る。
+// 駒をそのまま渡すと、HPやMPが減った状態から続けて戦える(大会の勝ち抜き戦で使う)。
+function asSide(x) {
+  return (Array.isArray(x) ? x : [x]).map(c => (c.maxHp != null ? c : combatant(c)));
+}
+
 function battle(a, b) {
-  const A = (Array.isArray(a) ? a : [a]).map(combatant);
-  const B = (Array.isArray(b) ? b : [b]).map(combatant);
+  const A = asSide(a);
+  const B = asSide(b);
   const log = [];
   const living = (side) => side.filter(c => c.hp > 0);
 
@@ -507,9 +513,9 @@ function battle(a, b) {
   const aDown = !living(A).length, bDown = !living(B).length;
   if (!aDown && !bDown) {
     log.push('決着がつかず、消耗の少ないほうの判定勝ち');
-    return { win: hpLeft(A) / hpMax(A) >= hpLeft(B) / hpMax(B), log, downed: A.filter(c => c.hp <= 0).length };
+    return { win: hpLeft(A) / hpMax(A) >= hpLeft(B) / hpMax(B), log, downed: A.filter(c => c.hp <= 0).length, A, B };
   }
-  return { win: bDown && !aDown, log, downed: A.filter(c => c.hp <= 0).length };
+  return { win: bDown && !aDown, log, downed: A.filter(c => c.hp <= 0).length, A, B };
 }
 
 function wildFor(area) {
@@ -558,6 +564,115 @@ function areaUnlocked(area, monsters) {
 }
 
 // =====================================================================
+// 大会
+//
+// 探索との違いはひとつだけで、「回戦のあいだHPとMPが持ち越される」こと。
+// 倒れた仲間もその大会のあいだは戻らない。
+// 1戦だけ強い編成では勝ち抜けないので、探索とは別の物差しがはたらく
+// (一撃の重さより、削られにくさと立て直しの効くスキルが要る)。
+// =====================================================================
+
+// つまみ。相手は毎回戦まっさらな状態で出てくるのに対し、こちらは削られたまま
+// 進むので、1回戦あたりの相手は探索の野生より弱く置かないと釣り合わない。
+const CUP = {
+  entry: 3,    // 出場できる数。相手も常にこの数だけ出てくる。
+  // 回戦のあいだの回復。MPは休めば張り直せるが、傷は残る。
+  // HPを丸ごと持ち越すと消耗が一方的に積もって誰も勝てず、逆に両方戻すと
+  // ただの探索5連戦になる。MPだけ全快させると、系統ごとの差も縮んで収まった。
+  heal:   0.25, // 回戦のあいだにHPが戻る割合(最大値に対して)
+  mpHeal: 1.00, // 同じくMP
+  lv0:   0.35, // 一回戦の相手のレベル(そのランクの上限に対する割合)
+  lv1:   0.95, // 決勝の相手のレベル
+  // 遺伝は「配合を重ねきった個体」を 1.0 として、その何割かで出す。
+  // ランクによらず同じ割合になるので、どの大会でも詰め方の手ごたえがそろう。
+  g0:    0.15, // 一回戦の相手の遺伝
+  g1:    0.95, // 決勝の相手の遺伝
+};
+
+// 配合を重ねきった個体の遺伝。相手の強さの基準に使う。
+function geneCap(rank) { return (rank - 1) * 4; }
+
+// 上の大会ほど回戦が多い。同ランクを育てきった3匹での優勝率は
+// 実測で 48〜74%(新芽48 / 沼地60 / 岩窟57 / 尖塔74 / 虚無48)。
+// 逆に、レベルか遺伝が2割欠けていると、どの大会もほぼ勝てない。
+const CUPS = [
+  { id: 1, name: '新芽杯', rank: 1, rounds: 2, prize: 150 },
+  { id: 2, name: '沼地杯', rank: 2, rounds: 3, prize: 420 },
+  { id: 3, name: '岩窟杯', rank: 3, rounds: 4, prize: 1000 },
+  { id: 4, name: '尖塔杯', rank: 4, rounds: 4, prize: 2200 },
+  { id: 5, name: '虚無杯', rank: 5, rounds: 5, prize: 5000 },
+];
+
+function cupUnlocked(cup, monsters) {
+  return monsters.some(m => spOf(m).rank >= cup.rank);
+}
+
+function roundName(i, total) {
+  if (i === total - 1) return '決勝';
+  if (i === total - 2) return '準決勝';
+  return ['一回戦', '二回戦', '三回戦', '四回戦'][i] || `${i + 1}回戦`;
+}
+
+// 回戦が進むほど、相手のレベルと遺伝が上がっていく。
+// 最後の大会の決勝だけは、勝ち取った側と同じ土俵に立たせるため光が出る。
+function cupFoes(cup, i) {
+  const t = cup.rounds > 1 ? i / (cup.rounds - 1) : 1;
+  const pool = speciesOfRank(cup.rank).filter(s => s.family !== 'light');
+  const maxLv = 6 + cup.rank * 3;
+  const isLast = i === cup.rounds - 1;
+  const champion = isLast && cup.rank === 5;
+  return Array.from({ length: CUP.entry }, (_, k) => {
+    const sp = (champion && k === 0) ? speciesById('light5') : pick(pool);
+    return makeMonster(sp.id, {
+      level: Math.max(1, Math.round(maxLv * (CUP.lv0 + (CUP.lv1 - CUP.lv0) * t))),
+      gene: Math.round(geneCap(cup.rank) * (CUP.g0 + (CUP.g1 - CUP.g0) * t)),
+    });
+  });
+}
+
+// 大会をひととおり解決して結果を返す(状態の書き換えは呼び出し側)。
+function runCup(party, cup) {
+  const team = Array.isArray(party) ? party : [party];
+  const mine = team.map(combatant);
+  const rounds = [];
+
+  for (let i = 0; i < cup.rounds; i++) {
+    const alive = mine.filter(c => c.hp > 0);
+    if (!alive.length) break;
+
+    const foes = cupFoes(cup, i);
+    const res = battle(alive, foes);
+    rounds.push({
+      name: roundName(i, cup.rounds),
+      foes,
+      win: res.win,
+      log: res.log,
+      // 何匹残って次へ進んだか
+      standing: mine.filter(c => c.hp > 0).map(c => ({ name: c.name, hp: Math.max(0, c.hp), maxHp: c.maxHp })),
+    });
+    if (!res.win) break;
+
+    // 次の回戦へ。倒れた仲間は戻らないが、立っている者は少しだけ回復する。
+    for (const c of mine) {
+      if (c.hp <= 0) continue;
+      c.hp = Math.min(c.maxHp, c.hp + Math.round(c.maxHp * CUP.heal));
+      c.mp = Math.min(c.maxMp, c.mp + Math.round(c.maxMp * CUP.mpHeal));
+      c.poison = 0; // 毒は回戦をまたがない
+    }
+  }
+
+  const cleared = rounds.length === cup.rounds && rounds[rounds.length - 1].win;
+  const won = rounds.filter(r => r.win).length;
+  return {
+    cup, rounds, cleared, won,
+    // 優勝すれば満額。途中敗退でも勝った回戦のぶんだけ持ち帰れる。
+    gold: cleared ? cup.prize : Math.floor(cup.prize * 0.15 * won),
+    exp: Math.round((cup.rank * 25 + 40) * (won + (cleared ? 2 : 0))),
+    survivors: mine.filter(c => c.hp > 0).length,
+  };
+}
+
+// =====================================================================
 // 状態
 // =====================================================================
 
@@ -566,6 +681,7 @@ const SAVE_KEY = 'monstermaster.v1';
 let S = null;
 let UI = {
   tab: 'ranch', picks: [], area: 1, party: [], result: null, open: null,
+  cup: 1, cupTeam: [], cupResult: null,
   born: null, bornNew: false, // 直前に配合で生まれた子(配合タブに留まったまま結果を見せる)
   order: null,                // 表示順(uidの配列)。null なら次の描画で強さ順に並べ直す
 };
@@ -583,6 +699,8 @@ function newState() {
     dex: starters.reduce((d, m) => (d[m.sp] = true, d), {}),
     fuseCount: 0,
     exploreCount: 0,
+    cups: {},      // 大会ID → { best: 到達した最高の回戦数, won: 優勝したか }
+    cupCount: 0,
   };
 }
 
@@ -619,6 +737,8 @@ function load() {
       dex: d.dex || {},
       fuseCount: d.fuseCount || 0,
       exploreCount: d.exploreCount || 0,
+      cups: d.cups || {},
+      cupCount: d.cupCount || 0,
     };
   } catch (e) { return null; }
 }
@@ -656,6 +776,27 @@ function doExplore(party, area) {
     out.capturedIsNew = discover(out.captured.sp);
   }
   S.exploreCount++;
+  return out;
+}
+
+function doCup(party, cup) {
+  const team = Array.isArray(party) ? party : [party];
+  const out = runCup(team, cup);
+  S.gold += out.gold;
+
+  const share = Math.max(1, Math.floor(out.exp / team.length));
+  out.gains = team.map(m => {
+    const ups = gainExp(m, share);
+    out.levelUps = (out.levelUps || 0) + ups;
+    return { name: spOf(m).name, exp: share, ups };
+  });
+  out.share = share;
+
+  const rec = S.cups[cup.id] || { best: 0, won: false };
+  out.newRecord = out.won > rec.best || (out.cleared && !rec.won);
+  out.firstWin = out.cleared && !rec.won;
+  S.cups[cup.id] = { best: Math.max(rec.best, out.won), won: rec.won || out.cleared };
+  S.cupCount++;
   return out;
 }
 
@@ -1110,6 +1251,113 @@ function viewExplore(view) {
   setAction(go);
 }
 
+// --------------------------------------------- 大会
+function viewCup(view) {
+  const head = el('div', 'head');
+  head.appendChild(el('h2', null, '大会'));
+  const wonCount = CUPS.filter(c => S.cups[c.id] && S.cups[c.id].won).length;
+  head.appendChild(el('span', 'note', `優勝 ${wonCount} / ${CUPS.length}`));
+  view.appendChild(head);
+
+  const chips = el('div', 'chips');
+  for (const c of CUPS) {
+    const ok = cupUnlocked(c, S.monsters);
+    const rec = S.cups[c.id];
+    const b = el('button', 'chip' + (UI.cup === c.id ? ' is-on' : '') + (rec && rec.won ? ' is-won' : ''));
+    if (!ok) b.disabled = true;
+    b.appendChild(el('span', null, ok ? c.name : '？？？'));
+    b.appendChild(el('span', 'r', rec && rec.won ? '優勝' : 'R' + c.rank));
+    b.addEventListener('click', () => { UI.cup = c.id; UI.cupResult = null; render(); });
+    chips.appendChild(b);
+  }
+  view.appendChild(chips);
+
+  const cup = CUPS.find(c => c.id === UI.cup && cupUnlocked(c, S.monsters))
+    || CUPS.filter(c => cupUnlocked(c, S.monsters)).pop() || CUPS[0];
+  UI.cup = cup.id;
+  const rec = S.cups[cup.id] || { best: 0, won: false };
+  view.appendChild(el('div', 'area-desc',
+    `${cup.rounds}回戦 ・ ${rankLabel(cup.rank)}の出場者 ・ 優勝賞金 ${cup.prize} G` +
+    (rec.won ? ' ・ 優勝済み' : rec.best ? ` ・ 最高 ${rec.best}回戦突破` : '')));
+
+  // 結果(高さ固定・一覧より上)
+  const out = el('div', 'panel result-slot');
+  const r = UI.cupResult;
+  const oh = el('div', 'head');
+  oh.appendChild(el('h2', null, !r ? '戦績' : r.cleared ? `${r.cup.name} 優勝` : '敗退'));
+  if (r) oh.appendChild(el('span', 'note', `${r.won} / ${r.cup.rounds} 回戦`));
+  out.appendChild(oh);
+
+  const log = el('div', 'log');
+  if (!r) {
+    log.appendChild(el('div', 'msg-dim',
+      '回戦のあいだ、傷は残ったままになる。1戦だけ強い編成では勝ち抜けない。'));
+    log.appendChild(el('div', 'msg-dim',
+      `MPは回戦ごとに戻るが、HPは最大値の${Math.round(CUP.heal * 100)}%しか戻らない。倒れた仲間は最後まで戻らない。`));
+  } else {
+    // 結果の枠は高さが固定なので、まず結末を出してから回戦を並べる
+    log.appendChild(el('div', r.cleared ? 'win' : 'lose',
+      r.cleared ? `優勝! 賞金 ${r.gold} G` : `${r.won}回戦で敗退 ・ ${r.gold} G`));
+    if (r.firstWin) log.appendChild(el('div', 'get', `${r.cup.name} 初優勝`));
+    log.appendChild(el('div', null,
+      `経験値 +${r.exp} を ${r.gains.length}匹で山分け(1匹あたり +${r.share})`));
+    if (r.levelUps > 0) {
+      const ups = r.gains.filter(g => g.ups > 0).map(g => `${g.name}+${g.ups}`).join(' ');
+      log.appendChild(el('div', 'get', `レベルアップ! ${ups}`));
+    }
+    for (const rd of r.rounds) {
+      log.appendChild(el('div', rd.win ? 'win' : 'lose',
+        `${rd.name}: ${rd.foes.map(f => spOf(f).name).join('・')} ${rd.win ? 'に勝利' : 'に敗れた'}`));
+      log.appendChild(el('div', null, rd.standing.length
+        ? '残り ' + rd.standing.map(s => `${s.name} ${s.hp}/${s.maxHp}`).join(' ・ ')
+        : '全滅'));
+    }
+  }
+  out.appendChild(log);
+  view.appendChild(out);
+
+  // 編成。相手も同数出るので、欠けたまま出ると勝ち抜けない。
+  UI.cupTeam = UI.cupTeam.filter(u => S.monsters.some(m => m.uid === u));
+  const panel = el('div', 'panel');
+  const ph = el('div', 'head');
+  ph.appendChild(el('h2', null, '出場'));
+  ph.appendChild(el('span', 'note', `${UI.cupTeam.length} / ${CUP.entry} 匹`));
+  panel.appendChild(ph);
+
+  const list = el('div', 'list');
+  for (const m of roster()) {
+    const idx = UI.cupTeam.indexOf(m.uid);
+    list.appendChild(monRow(m, {
+      selected: idx >= 0,
+      badge: idx >= 0 ? String(idx + 1) : null,
+      onClick: () => {
+        if (idx >= 0) UI.cupTeam.splice(idx, 1);
+        else if (UI.cupTeam.length < CUP.entry) UI.cupTeam.push(m.uid);
+        else UI.cupTeam = [...UI.cupTeam.slice(1), m.uid];
+        render();
+      },
+    }));
+  }
+  panel.appendChild(list);
+  panel.appendChild(el('p', 'hint',
+    `${CUP.entry}匹そろえないと出場できない。1匹に絞って育てた編成では勝ち抜けないので、` +
+    `3匹とも上限まで育てて遺伝も詰めておくこと。`));
+  view.appendChild(panel);
+
+  const ready = UI.cupTeam.length === CUP.entry;
+  const go = el('button', 'btn primary',
+    ready ? `${cup.name} に出場する` : `あと${CUP.entry - UI.cupTeam.length}匹選ぶ`);
+  if (!ready) go.disabled = true;
+  go.addEventListener('click', () => {
+    const team = UI.cupTeam.map(u => S.monsters.find(m => m.uid === u)).filter(Boolean);
+    if (team.length !== CUP.entry) return;
+    UI.cupResult = doCup(team, cup);
+    save();
+    render();
+  });
+  setAction(go);
+}
+
 // --------------------------------------------- 図鑑
 function viewDex(view) {
   const found = Object.keys(S.dex).filter(k => S.dex[k]).length;
@@ -1200,6 +1448,7 @@ function render() {
   if (UI.tab === 'ranch') viewRanch(view);
   else if (UI.tab === 'fuse') viewFuse(view);
   else if (UI.tab === 'explore') viewExplore(view);
+  else if (UI.tab === 'cup') viewCup(view);
   else viewDex(view);
 }
 
@@ -1210,6 +1459,7 @@ function init() {
     t.addEventListener('click', () => {
       UI.tab = t.dataset.tab;
       UI.result = null;
+      UI.cupResult = null;
       resort(); // タブを移るタイミングで強さ順に並べ直す
       render();
       document.getElementById('view').scrollIntoView({ block: 'start' });

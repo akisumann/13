@@ -465,6 +465,9 @@ button:focus-visible, .mon:focus-visible {
 }
 .chip[disabled] { opacity: 0.36; pointer-events: none; }
 .chip .r { font-family: var(--mono); font-size: 10.5px; color: var(--gold); }
+/* 優勝済みの大会。選んでいなくても一目で分かるようにする */
+.chip.is-won { border-color: var(--gold); }
+.chip.is-won .r { font-family: inherit; font-weight: 700; }
 
 .area-desc {
   font-size: 12px;
