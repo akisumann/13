@@ -235,6 +235,15 @@ button:focus-visible, .mon:focus-visible {
 .emblem.lg { width: 60px; height: 60px; font-size: 26px; }
 .emblem.sm { width: 30px; height: 30px; font-size: 13px; border-width: 1px; }
 
+/* ドット絵を入れたとき。にじませずマス目のまま拡大する */
+.emblem.has-sprite {
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 86%;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
 /* ===== モンスター行 ===== */
 .list { display: flex; flex-direction: column; gap: 8px; }
 

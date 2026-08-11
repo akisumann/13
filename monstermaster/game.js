@@ -1076,10 +1076,165 @@ function el(tag, cls, text) {
 
 function rankLabel(r) { return '★' + r; }
 
+// =====================================================================
+// ドット絵
+//
+// 種ごとの姿を 15×15 の格子で生成する。画像ファイルは持たず、
+// 種IDを種にした乱数から形を決めるので、同じ種はいつ見ても同じ姿になる。
+// セーブにも何も足さない。
+// =====================================================================
+
+const SPRITE_N = 15;
+const SPRITE_SCALE = 4; // 1マスあたりの実ピクセル
+
+// 種ID → 乱数の種
+function seedOf(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function seededRng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+// 0=空 1=地 2=光(上端) 3=影(下端) 4=目
+function spriteGrid(speciesId) {
+  const sp = speciesById(speciesId);
+  const R = seededRng(seedOf(speciesId));
+  const N = SPRITE_N;
+  const g = Array.from({ length: N }, () => new Array(N).fill(0));
+  // 左右対称に置く。片側だけ決めて折り返す。
+  const put = (x, y, v) => {
+    if (x < 0 || y < 0 || x >= N || y >= N) return;
+    g[y][x] = v; g[y][N - 1 - x] = v;
+  };
+  const mid = (N - 1) / 2;
+
+  // --- 胴体 ---
+  // ランクが上がるほど大きく、行ごとの幅を揺らして輪郭を崩す
+  const top = 4 - Math.min(2, Math.floor(sp.rank / 2));
+  const bottom = N - 2;
+  const rad = (bottom - top) / 2;
+  const maxHalf = 2.4 + sp.rank * 0.42;
+  for (let y = top; y <= bottom; y++) {
+    const ty = (y - (top + bottom) / 2) / rad;
+    const base = Math.sqrt(Math.max(0, 1 - ty * ty)) * maxHalf;
+    const half = Math.round(base * (0.72 + R() * 0.55));
+    for (let x = 0; x <= half; x++) put(mid - x, y, 1);
+  }
+
+  // --- 系統ごとの付属物 ---
+  const n = 1 + Math.floor(sp.rank / 2);
+  if (sp.family === 'fire' || sp.family === 'light') {
+    // 上へ噴く
+    for (let i = 0; i <= n; i++) {
+      const x = mid - i * 2;
+      const h = 1 + Math.floor(R() * (2 + sp.rank * 0.5));
+      for (let k = 0; k < h; k++) put(x, top - 1 - k, 1);
+    }
+  } else if (sp.family === 'grass') {
+    // 左右対称の葉
+    for (let i = 0; i < n + 1; i++) {
+      put(mid - 1 - i, top - 1, 1);
+      put(mid - 2 - i, top - 2, 1);
+    }
+  } else if (sp.family === 'water') {
+    // 下へ伸びる鰭
+    for (let i = 0; i < n + 1; i++) {
+      const x = mid - i * 2 - 1;
+      for (let k = 0; k < 1 + Math.floor(R() * 2); k++) put(x, bottom + 1 + k, 1);
+    }
+  } else if (sp.family === 'wind') {
+    // 横へ張る翼
+    for (let i = 0; i < n + 1; i++) {
+      const y = mid - 1 + i;
+      for (let k = 0; k < 2 + Math.floor(R() * 2); k++) put(1 + k, y, 1);
+    }
+  } else if (sp.family === 'rock') {
+    // 角ばった突起
+    for (let i = 0; i < n + 2; i++) {
+      const y = top + 1 + Math.floor(R() * (bottom - top - 1));
+      put(mid - Math.round(2 + R() * 3), y, 1);
+    }
+  } else {
+    // 闇: 上へ伸びる角
+    for (let i = 0; i < n + 1; i++) {
+      const x = mid - 1 - i;
+      put(x, top - 1, 1); if (i % 2 === 0) put(x - 1, top - 2, 1);
+    }
+  }
+
+  // --- 陰影 ---
+  // 上が空いていれば光、下が空いていれば影。ドット絵の立体感はこれだけで出る。
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    if (g[y][x] !== 1) continue;
+    if (y === 0 || g[y - 1][x] === 0) g[y][x] = 2;
+    else if (y === N - 1 || g[y + 1][x] === 0) g[y][x] = 3;
+  }
+
+  // --- 目 ---
+  // 胴体の上のほう。埋まっているマスにしか置かない。
+  const eyeRow = top + 1 + Math.floor((bottom - top) * (0.22 + R() * 0.18));
+  const wide = sp.rank >= 3 ? 2 : 1;
+  for (let row = eyeRow; row <= eyeRow + 1; row++) {
+    if (g[row] && g[row][mid - wide] && g[row][mid - wide] !== 4) {
+      put(mid - wide, row, 4);
+      break;
+    }
+  }
+  return g;
+}
+
+// 生成した絵を data URL にして覚えておく。行の描き直しのたびに作らない。
+const _spriteCache = {};
+function spriteURL(speciesId) {
+  if (speciesId in _spriteCache) return _spriteCache[speciesId];
+  let url = null;
+  try {
+    const cv = document.createElement('canvas');
+    if (cv.getContext) {                       // テスト用のDOM代替には canvas が無い
+      const N = SPRITE_N, u = SPRITE_SCALE;
+      cv.width = N * u; cv.height = N * u;
+      const ctx = cv.getContext('2d');
+      const c = FAMILIES[speciesById(speciesId).family].color;
+      const tone = { 1: shadeColor(c, 1.0), 2: shadeColor(c, 1.32), 3: shadeColor(c, 0.62), 4: '#0b0f1a' };
+      const g = spriteGrid(speciesId);
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const v = g[y][x];
+        if (!v) continue;
+        ctx.fillStyle = tone[v];
+        ctx.fillRect(x * u, y * u, u, u);
+      }
+      url = cv.toDataURL();
+    }
+  } catch (e) { url = null; }
+  _spriteCache[speciesId] = url;
+  return url;
+}
+
+function shadeColor(hex, k) {
+  const n = parseInt(hex.slice(1), 16);
+  const f = (v) => Math.max(0, Math.min(255, Math.round(v * k)));
+  return `rgb(${f(n >> 16 & 255)},${f(n >> 8 & 255)},${f(n & 255)})`;
+}
+
 function emblem(m, size) {
   const f = famOf(m);
-  const n = el('div', 'emblem' + (size ? ' ' + size : ''), f.glyph);
+  const n = el('div', 'emblem' + (size ? ' ' + size : ''));
   n.style.setProperty('--fc', f.color);
+  const url = spriteURL(m.sp);
+  if (url) {
+    n.classList.add('has-sprite');
+    n.style.backgroundImage = `url(${url})`;
+  } else {
+    n.textContent = f.glyph; // canvas が使えない環境では系統の字に戻す
+  }
   return n;
 }
 
