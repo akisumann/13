@@ -294,6 +294,53 @@ const ITEMS = {
     desc: '異なる系統を配合しても、子の系統を1匹目のほうに固定する' },
 };
 
+// ===== にわの敷地と器具 =====
+// ここで売るものは見た目だけ。戦闘の数値には一切触らない。
+// ステータスを売らないのと同じ理由で、代わりに「眺め」を売る。
+
+const GROUNDS = [
+  { id: 'grass', name: '草地',   price: 0,    hue: '#5fd07a', desc: '踏み固められた土と草。最初からある。' },
+  { id: 'sand',  name: '砂地',   price: 700,  hue: '#d0a24a', desc: '乾いた砂。足あとがよく残る。' },
+  { id: 'stone', name: '石畳',   price: 1400, hue: '#8e9ab8', desc: '敷き詰めた石。硬い音が返る。' },
+  { id: 'water', name: '水辺',   price: 2400, hue: '#4aa8ff', desc: '浅く水を張ってある。歩くと跳ねる。' },
+  { id: 'night', name: '星天',   price: 4200, hue: '#a76bff', desc: '夜だけが降りている。理由は誰も知らない。' },
+];
+
+// 器具。7×5のドット絵と、寄ってくる系統・することが決まっている。
+const FIXTURES = {
+  rug:    { name: '敷物',       price: 300,  likes: null,
+            acts: ['の上で寝そべった', 'で 丸くなった', 'の端をくわえている'],
+            art: ['.......', '.#####.', '.#ooo#.', '.#####.', '.......'], c: '#b06a5a', a: '#e0a08a' },
+  ball:   { name: 'まり',       price: 380,  likes: 'wind',
+            acts: ['を 転がしている', 'を 追いかけた', 'に 飛びついた'],
+            art: ['..###..', '.#ooo#.', '#oo#oo#', '.#ooo#.', '..###..'], c: '#e8c05a', a: '#fff3c4' },
+  feeder: { name: 'えさ箱',     price: 450,  likes: null,
+            acts: ['を つついている', 'で 食べている', 'に 顔を突っ込んだ'],
+            art: ['.......', '#.....#', '#ooooo#', '#######', '.#...#.'], c: '#8a6a4a', a: '#d8b06a' },
+  trough: { name: '水おけ',     price: 520,  likes: 'water',
+            acts: ['で 水をのんでいる', 'に 足をつけた', 'を のぞきこんでいる'],
+            art: ['.......', '#.....#', '#ooooo#', '#ooooo#', '.#####.'], c: '#6a7a9a', a: '#4aa8ff' },
+  log:    { name: '丸太',       price: 560,  likes: 'grass',
+            acts: ['に よじ登った', 'の上で寝ている', 'を かじっている'],
+            art: ['.......', '#######', '#oo#oo#', '#######', '.......'], c: '#7a5a3a', a: '#a88050' },
+  bush:   { name: '茂み',       price: 620,  likes: 'dark',
+            acts: ['に 隠れた', 'から 顔だけ出している', 'の中で丸くなった'],
+            art: ['..o.o..', '.ooooo.', 'ooooooo', '.ooooo.', '..#.#..'], c: '#3a5a3a', a: '#5fd07a' },
+  perch:  { name: 'とまり木',   price: 700,  likes: 'wind',
+            acts: ['に とまった', 'から 見下ろしている', 'の上で羽を伸ばした'],
+            art: ['#######', '...#...', '...#...', '..###..', '.#####.'], c: '#8a7a5a', a: '#c8b070' },
+  hearth: { name: 'あたたか石', price: 820,  likes: 'fire',
+            acts: ['の上で丸くなった', 'で 温まっている', 'に 寄りかかった'],
+            art: ['..###..', '.#ooo#.', '#ooooo#', '#ooooo#', '#######'], c: '#8a4a3a', a: '#ff6b4a' },
+  cairn:  { name: '積み石',     price: 900,  likes: 'rock',
+            acts: ['を 崩した', 'を 積み直している', 'の影に入った'],
+            art: ['..###..', '.#####.', '..###..', '.#####.', '#######'], c: '#7a7a86', a: '#d0a24a' },
+  font:   { name: '灯明',       price: 1100, likes: 'light',
+            acts: ['の火を見ている', 'に 照らされている', 'のまわりを回った'],
+            art: ['...o...', '..ooo..', '...#...', '..###..', '.#####.'], c: '#9a8a6a', a: '#ffd95c' },
+};
+const FIXTURE_MAX = 6;
+
 // 牧場の拡張。1段ごとに2匹分増える。
 const BARN_STEPS = [500, 1200, 2800, 6400];
 const BARN_BASE = 12;
@@ -940,6 +987,7 @@ function newState() {
     rivals: {},    // 大会ID → { met: 決勝で会ったか, beaten: 勝ったか, losses: 負けた回数 }
     items: {},     // 触媒ID → 個数
     barn: 0,       // 牧場を広げた回数
+    pen: { ground: 'grass', fixtures: [] },  // にわの敷地と器具(見た目だけ)
   };
 }
 
@@ -988,6 +1036,11 @@ function load() {
       rivals: d.rivals || {},
       items: d.items || {},
       barn: Math.min(BARN_STEPS.length, d.barn || 0),
+      pen: {
+        ground: GROUNDS.some(g => g.id === (d.pen && d.pen.ground)) ? d.pen.ground : 'grass',
+        fixtures: ((d.pen && Array.isArray(d.pen.fixtures)) ? d.pen.fixtures : [])
+          .filter((id, i, a) => FIXTURES[id] && a.indexOf(id) === i).slice(0, FIXTURE_MAX),
+      },
     };
   } catch (e) { return null; }
 }
@@ -1096,6 +1149,37 @@ function doBuyItem(id) {
   S.gold -= it.price;
   S.items[id] = (S.items[id] || 0) + 1;
   return { item: it, count: S.items[id] };
+}
+
+function ownsGround(id) { return id === 'grass' || S.pen.ground === id || (S.pen.owned || []).includes(id); }
+
+function doBuyGround(id) {
+  const g = GROUNDS.find(x => x.id === id);
+  if (!g) return null;
+  S.pen.owned = S.pen.owned || [];
+  if (!ownsGround(id)) {
+    if (S.gold < g.price) return null;
+    S.gold -= g.price;
+    S.pen.owned.push(id);
+  }
+  S.pen.ground = id;   // 買ってあるものには何度でも張り替えられる
+  return { ground: g };
+}
+
+function doBuyFixture(id) {
+  const f = FIXTURES[id];
+  if (!f || S.pen.fixtures.includes(id)) return null;
+  if (S.pen.fixtures.length >= FIXTURE_MAX || S.gold < f.price) return null;
+  S.gold -= f.price;
+  S.pen.fixtures.push(id);
+  return { fixture: f };
+}
+
+function doRemoveFixture(id) {
+  const i = S.pen.fixtures.indexOf(id);
+  if (i < 0) return null;
+  S.pen.fixtures.splice(i, 1);
+  return true;
 }
 
 function barnPrice() {
@@ -1437,6 +1521,8 @@ const PEN = {
   nap: 0.14,                // その場でうずくまる割合
   near: 11,                 // これより近いと絡む(%)
   chat: 0.30,               // 近づいたとき何か起きる割合
+  seek: 0.45,               // 器具に用ができる割合
+  play: 0.35,               // 器具のそばで何かする割合
 };
 
 // 性格ごとの歩き方。落ち着きの無さと歩幅だけ変える。
@@ -1466,6 +1552,48 @@ const PEN_ALONE = [
   '尻尾を追いかけている', '伸びをした', 'ぼんやりしている', '転がった',
 ];
 
+// 器具の置き場所。並び順から決めるので、いつ見ても同じところにある。
+function fixtureSpots() {
+  const out = {};
+  const n = S.pen.fixtures.length;
+  S.pen.fixtures.forEach((id, i) => {
+    const R = seededRng(seedOf('fx' + id));
+    const col = n <= 3 ? i : i % 3;
+    const row = n <= 3 ? 0 : Math.floor(i / 3);
+    const rows = n <= 3 ? 1 : 2;
+    out[id] = {
+      x: 16 + col * (68 / Math.max(1, (n <= 3 ? n : 3) - 1 || 1)) + (R() - 0.5) * 6,
+      y: rows === 1 ? 44 + (R() - 0.5) * 20 : 24 + row * 40 + (R() - 0.5) * 10,
+    };
+    if ((n <= 3 ? n : 3) === 1) out[id].x = 50 + (R() - 0.5) * 10;
+  });
+  return out;
+}
+
+// 器具のドット絵。モンスターと同じく data URL にして覚えておく。
+const _fxCache = {};
+function fixtureURL(id) {
+  if (id in _fxCache) return _fxCache[id];
+  let url = null;
+  try {
+    const cv = document.createElement('canvas');
+    if (cv.getContext) {
+      const f = FIXTURES[id], u = SPRITE_SCALE;
+      const w = f.art[0].length, h = f.art.length;
+      cv.width = w * u; cv.height = h * u;
+      const g = cv.getContext('2d');
+      f.art.forEach((line, y) => [...line].forEach((ch, x) => {
+        if (ch === '.') return;
+        g.fillStyle = ch === '#' ? f.c : f.a;
+        g.fillRect(x * u, y * u, u, u);
+      }));
+      url = cv.toDataURL();
+    }
+  } catch (e) { url = null; }
+  _fxCache[id] = url;
+  return url;
+}
+
 // にわの中の居場所。見た目だけなのでセーブしない。
 function penSpot(uid) {
   UI.pen = UI.pen || {};
@@ -1483,6 +1611,9 @@ function penStep() {
   if (UI.tab !== 'ranch' || !UI.penNodes) return;
   const said = [];
   const spots = [];
+  const fx = fixtureSpots();
+  const fxIds = Object.keys(fx);
+
   for (const m of S.monsters) {
     const node = UI.penNodes[m.uid];
     if (!node) continue;
@@ -1490,7 +1621,24 @@ function penStep() {
 
     if (Math.random() < PEN.nap) p.nap = !p.nap;
     if (!p.nap && Math.random() >= st.still) {
-      const dx = ri(-st.step, st.step), dy = ri(-Math.round(st.step * 0.6), Math.round(st.step * 0.6));
+      // 器具に用があるときはそちらへ寄る。好きな系統ならなお寄る。
+      if (!p.want || !fx[p.want] || Math.random() < 0.25) {
+        p.want = null;
+        if (fxIds.length && Math.random() < PEN.seek) {
+          const mine = fxIds.filter(id => FIXTURES[id].likes === spOf(m).family);
+          p.want = pick(mine.length && Math.random() < 0.7 ? mine : fxIds);
+        }
+      }
+      let dx, dy;
+      if (p.want) {
+        const t = fx[p.want];
+        dx = clamp(Math.round(t.x - p.x), -st.step, st.step);
+        dy = clamp(Math.round(t.y - p.y), -st.step, st.step);
+        if (!dx && !dy) { dx = ri(-2, 2); dy = ri(-2, 2); }
+      } else {
+        dx = ri(-st.step, st.step);
+        dy = ri(-Math.round(st.step * 0.6), Math.round(st.step * 0.6));
+      }
       const nx = clamp(p.x + dx, PEN.x[0], PEN.x[1]);
       if (nx !== p.x) p.flip = nx < p.x;
       p.x = nx;
@@ -1498,6 +1646,19 @@ function penStep() {
     }
     applySpot(node, p);
     spots.push({ m, p });
+  }
+
+  // 器具のそばにいる者は、その器具で遊ぶ
+  for (const { m, p } of spots) {
+    if (said.length) break;
+    for (const id of fxIds) {
+      const t = fx[id];
+      if (Math.abs(p.x - t.x) > PEN.near || Math.abs(p.y - t.y) > PEN.near) continue;
+      if (Math.random() >= PEN.play) continue;
+      said.push(`${nameOf(m)} が ${FIXTURES[id].name} ${pick(FIXTURES[id].acts)}`);
+      p.want = null;
+      break;
+    }
   }
 
   // 近くにいる者どうしが絡む
@@ -1527,7 +1688,23 @@ function applySpot(node, p) {
 
 function penView() {
   const wrap = el('div', 'pen-wrap');
-  const pen = el('div', 'pen');
+  const pen = el('div', 'pen ground-' + S.pen.ground);
+  const gr = GROUNDS.find(g => g.id === S.pen.ground) || GROUNDS[0];
+  pen.style.setProperty('--gh', gr.hue);
+
+  // 器具は下に敷く
+  const fx = fixtureSpots();
+  for (const id of S.pen.fixtures) {
+    const n = el('div', 'pen-fx');
+    n.title = FIXTURES[id].name;
+    n.style.setProperty('--px', fx[id].x + '%');
+    n.style.setProperty('--py', fx[id].y + '%');
+    const url = fixtureURL(id);
+    if (url) n.style.backgroundImage = `url(${url})`;
+    else n.textContent = FIXTURES[id].name;
+    pen.appendChild(n);
+  }
+
   UI.penNodes = {};
   for (const m of S.monsters) {
     const n = el('div', 'pen-mon');
@@ -1617,6 +1794,74 @@ function shopPanel() {
     shop.appendChild(row);
   }
   shop.appendChild(el('p', 'hint', '配合タブで、1回の配合につき1つずつ使える。使うと無くなる。'));
+
+  // ---- にわの敷地 ----
+  shop.appendChild(el('div', 'shop-label', 'にわの敷地'));
+  const gchips = el('div', 'chips');
+  for (const g of GROUNDS) {
+    const have = ownsGround(g.id);
+    const b = el('button', 'chip' + (S.pen.ground === g.id ? ' is-on' : ''));
+    b.appendChild(el('span', null, g.name));
+    b.appendChild(el('span', 'r', have ? (S.pen.ground === g.id ? '敷いてある' : '張り替え') : `${g.price} G`));
+    if (!have && S.gold < g.price) b.disabled = true;
+    b.addEventListener('click', () => {
+      const r = doBuyGround(g.id);
+      if (!r) return;
+      toast(`にわを ${g.name} にした`);
+      save(); render();
+    });
+    gchips.appendChild(b);
+  }
+  shop.appendChild(gchips);
+  shop.appendChild(el('p', 'hint',
+    (GROUNDS.find(g => g.id === S.pen.ground) || GROUNDS[0]).desc +
+    ' 一度買えば、あとは何度でも張り替えられる。'));
+
+  // ---- にわの器具 ----
+  shop.appendChild(el('div', 'shop-label', `にわの器具 (${S.pen.fixtures.length} / ${FIXTURE_MAX})`));
+  for (const [id, f] of Object.entries(FIXTURES)) {
+    const placed = S.pen.fixtures.includes(id);
+    const row = el('div', 'item-row');
+    if (fixtureURL(id)) {
+      const th = el('div', 'fx-thumb');
+      th.style.backgroundImage = `url(${fixtureURL(id)})`;
+      row.appendChild(th);
+    }
+    const main = el('div', 'item-main');
+    const nm = el('div', 'item-name');
+    nm.appendChild(el('span', null, f.name));
+    if (placed) nm.appendChild(el('span', 'item-have', '置いてある'));
+    main.appendChild(nm);
+    main.appendChild(el('div', 'item-desc',
+      (f.likes ? `${FAMILIES[f.likes].name}系がよく寄ってくる。` : 'だれでも寄ってくる。') +
+      `そばに来ると「${f.acts[0]}」`));
+    row.appendChild(main);
+    if (placed) {
+      const rm = el('button', 'buy sm');
+      rm.appendChild(el('div', 'buy-name', 'しまう'));
+      rm.addEventListener('click', () => {
+        if (!doRemoveFixture(id)) return;
+        toast(`${f.name} をしまった`);
+        save(); render();
+      });
+      row.appendChild(rm);
+    } else {
+      const b = el('button', 'buy sm');
+      b.appendChild(el('div', 'buy-price', `${f.price} G`));
+      if (S.gold < f.price || S.pen.fixtures.length >= FIXTURE_MAX) b.disabled = true;
+      b.addEventListener('click', () => {
+        const r = doBuyFixture(id);
+        if (!r) return;
+        toast(`${f.name} を にわに置いた`);
+        save(); render();
+      });
+      row.appendChild(b);
+    }
+    shop.appendChild(row);
+  }
+  shop.appendChild(el('p', 'hint',
+    `にわに置けるのは${FIXTURE_MAX}つまで。しまっても金は返らないが、いつでも出し直せる。` +
+    '効果は見た目だけで、戦闘の数値には一切関わらない。'));
 
   // ---- 牧場の拡張 ----
   shop.appendChild(el('div', 'shop-label', '牧場を広げる'));
