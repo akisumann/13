@@ -651,3 +651,90 @@ button:focus-visible, .mon:focus-visible {
   color: var(--muted);
   padding: 2px 2px 6px;
 }
+
+/* ===== 商店 ===== */
+.shop-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  padding-top: 2px;
+}
+.shop-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.buy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 10px 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--line-hi);
+  border-radius: 8px;
+  text-align: center;
+}
+.buy:active { background: var(--line); }
+.buy[disabled] { opacity: 0.36; pointer-events: none; }
+.buy.sm { flex: 0 0 auto; padding: 9px 12px; }
+.buy-name { font-size: 12px; font-weight: 600; line-height: 1.4; }
+.buy-price {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+  color: var(--gold);
+  font-weight: 600;
+}
+
+.item-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.item-main { flex: 1 1 auto; min-width: 0; }
+.item-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.item-have {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.item-desc { font-size: 11.5px; color: var(--muted); line-height: 1.65; }
+
+/* 配合タブの触媒スイッチ */
+.catalyst {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  text-align: left;
+}
+.catalyst.is-on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+}
+.cat-mark {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.catalyst.is-on .cat-mark { color: var(--accent); }

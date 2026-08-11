@@ -219,10 +219,40 @@ const AREAS = [
     lore: '底がない。落ちた者の数は、誰も数えていない。' },
 ];
 
+// ===== 商店 =====
+// 金で買えるのは「材料と制御」だけ。ステータスそのものは売らない。
+// 系統ごとの勝率も大会の相手も遺伝とレベルを基準に組んであるので、
+// その外側から数値を足すと釣り合いが丸ごと崩れる。
+
+// たまご。ランクが上がるほど高いが、遺伝は必ず0。
+// 強さは配合で積むもので、金で買えるのは材料まで。
 const EGG_PRICE = 60;
+const EGG_TIERS = [
+  { rank: 1, price: 60 },
+  { rank: 2, price: 260 },
+  { rank: 3, price: 950 },
+];
+const EGG_PICK_MUL = 2.5; // 系統を指定するときの倍率
+
+// 配合の触媒。1回の配合につき1つずつ使える(使い切り)。
+const ITEMS = {
+  yamimaneki: { name: '闇招きの香', price: 320,
+    desc: 'ランク3以上の異なる系統を配合したとき、25%の闇の発現を確実にする' },
+  keishou:    { name: '継承の証',   price: 220,
+    desc: '親からスキルを2つ受け継がせる(通常は20%で0個、40%で1個)' },
+  keitou:     { name: '系統の錠',   price: 260,
+    desc: '異なる系統を配合しても、子の系統を1匹目のほうに固定する' },
+};
+
+// 牧場の拡張。1段ごとに2匹分増える。
+const BARN_STEPS = [500, 1200, 2800, 6400];
+const BARN_BASE = 12;
 const CAPTURE_RATE = 0.22;
 const DARK_CHANCE = 0.25;
-const ROSTER_CAP = 12; // 牧場の上限。あふれると育成が薄く分散して誰も育たなくなる。
+// 牧場の上限。あふれると育成が薄く分散して誰も育たなくなるので、
+// 初期値は低く置き、金を払った分だけ広げられるようにしてある。
+const ROSTER_CAP = BARN_BASE;
+function rosterCap() { return BARN_BASE + (S && S.barn ? S.barn : 0) * 2; }
 const PARTY_MAX = 3;   // 探索に連れて行ける数。野生も同数出る。
 
 // =====================================================================
@@ -304,15 +334,27 @@ function activeSkills(m) {
 
 // 配合でのスキル習得: 親から0〜2個。2個なら両親から1つずつ、
 // 1個ならどちらかの親から、0個なら子の種族が本来よく持つスキルから。
-function inheritSkills(a, b, childSpecies) {
+function inheritSkills(a, b, childSpecies, use) {
   const r = Math.random();
-  const n = r < SKILL_INHERIT[0] ? 0 : r < SKILL_INHERIT[0] + SKILL_INHERIT[1] ? 1 : 2;
+  // 継承の証を使えば、必ず両親から1つずつ受け継ぐ
+  const n = (use && use.keishou) ? 2
+    : r < SKILL_INHERIT[0] ? 0 : r < SKILL_INHERIT[0] + SKILL_INHERIT[1] ? 1 : 2;
   const from = (m) => (m.skills && m.skills.length) ? pick(m.skills) : null;
 
   let got = [];
   if (n === 2) got = [from(a), from(b)];
   else if (n === 1) got = [from(Math.random() < 0.5 ? a : b)];
   got = got.filter(Boolean);
+
+  // 継承の証は金を払って使うものなので、両親から同じスキルを引いてしまったら
+  // 引き直す。それでも2つにならないのは、両親のスキルが1種類しかないときだけ。
+  if (use && use.keishou && new Set(got).size < 2) {
+    const all = [...new Set([...(a.skills || []), ...(b.skills || [])])];
+    if (all.length >= 2) {
+      const first = got[0] || pick(all);
+      got = [first, pick(all.filter(id => id !== first))];
+    }
+  }
 
   // 何も受け継げなかった場合は種族本来のスキルを1つ
   if (!got.length) got = [pick(childSpecies.innate)];
@@ -371,14 +413,25 @@ function gainExp(m, amount) {
 function fusionKey(a, b) { return [a, b].sort().join('+'); }
 
 // 子の系統。ランダム要素(闇の発現)があるので確定ではない。
-function fuseFamily(a, b) {
+// 闇が出うる組み合わせか(触媒の効き先を判定するのに使う)
+function darkPossible(a, b) {
+  const fa = spOf(a).family, fb = spOf(b).family;
+  return fa !== fb && ra3(a) && ra3(b)
+    && fa !== 'dark' && fb !== 'dark' && fa !== 'light' && fb !== 'light';
+}
+function ra3(m) { return spOf(m).rank >= 3; }
+
+function fuseFamily(a, b, use) {
+  const u = use || {};
   const fa = spOf(a).family, fb = spOf(b).family;
   const ra = spOf(a).rank, rb = spOf(b).rank;
   if (fa === 'dark' && fb === 'dark' && ra >= 4 && rb >= 4) return 'light';
   if (fa === 'light' || fb === 'light') return 'light';
   if (fa === 'dark' || fb === 'dark') return 'dark';
   if (fa === fb) return fa;
-  if (ra >= 3 && rb >= 3 && Math.random() < DARK_CHANCE) return 'dark';
+  // 系統の錠。異系統でも1匹目の系統を受け継ぐ(闇の抽選も起きない)
+  if (u.keitou) return fa;
+  if (ra >= 3 && rb >= 3 && (u.yamimaneki || Math.random() < DARK_CHANCE)) return 'dark';
   return FUSION_TABLE[fusionKey(fa, fb)];
 }
 
@@ -397,13 +450,13 @@ function fuseGene(a, b) {
   return Math.floor((a.gene + b.gene) / 2) + Math.floor((a.level + b.level) / 4);
 }
 
-function fuse(a, b) {
-  const family = fuseFamily(a, b);
+function fuse(a, b, use) {
+  const family = fuseFamily(a, b, use);
   const rank = fuseRank(a, b, family);
   const sp = speciesFor(family, rank);
   return makeMonster(sp.id, {
     gene: fuseGene(a, b),
-    skills: inheritSkills(a, b, sp),
+    skills: inheritSkills(a, b, sp, use),
     // 系譜。代は「親の深いほう + 1」で数える。
     gen: Math.max(a.gen || 1, b.gen || 1) + 1,
     parents: [{ name: nameOf(a), sp: a.sp }, { name: nameOf(b), sp: b.sp }],
@@ -412,11 +465,12 @@ function fuse(a, b) {
 }
 
 // 実行前に見せる予測。闇が出うる組み合わせは伏せる。
-function previewFusion(a, b) {
+function previewFusion(a, b, use) {
+  const u = use || {};
   const fa = spOf(a).family, fb = spOf(b).family;
   const ra = spOf(a).rank, rb = spOf(b).rank;
-  const surprise = fa !== fb && fa !== 'dark' && fb !== 'dark'
-    && fa !== 'light' && fb !== 'light' && ra >= 3 && rb >= 3;
+  // 触媒で確定するなら、もう「もしかしたら」ではない
+  const surprise = darkPossible(a, b) && !u.yamimaneki && !u.keitou;
 
   // 予測表示では闇の抽選を外した確定ルートを示す
   let family;
@@ -424,6 +478,8 @@ function previewFusion(a, b) {
   else if (fa === 'light' || fb === 'light') family = 'light';
   else if (fa === 'dark' || fb === 'dark') family = 'dark';
   else if (fa === fb) family = fa;
+  else if (u.keitou) family = fa;
+  else if (u.yamimaneki && ra >= 3 && rb >= 3) family = 'dark';
   else family = FUSION_TABLE[fusionKey(fa, fb)];
 
   const rank = fuseRank(a, b, family);
@@ -803,6 +859,7 @@ let S = null;
 let UI = {
   tab: 'ranch', picks: [], area: 1, party: [], result: null, open: null,
   cup: 1, cupTeam: [], cupResult: null,
+  eggFamily: null, use: {},
   born: null, bornNew: false, // 直前に配合で生まれた子(配合タブに留まったまま結果を見せる)
   order: null,                // 表示順(uidの配列)。null なら次の描画で強さ順に並べ直す
 };
@@ -823,6 +880,8 @@ function newState() {
     cups: {},      // 大会ID → { best: 到達した最高の回戦数, won: 優勝したか }
     cupCount: 0,
     rivals: {},    // 大会ID → { met: 決勝で会ったか, beaten: 勝ったか, losses: 負けた回数 }
+    items: {},     // 触媒ID → 個数
+    barn: 0,       // 牧場を広げた回数
   };
 }
 
@@ -867,6 +926,8 @@ function load() {
       cups: d.cups || {},
       cupCount: d.cupCount || 0,
       rivals: d.rivals || {},
+      items: d.items || {},
+      barn: Math.min(BARN_STEPS.length, d.barn || 0),
     };
   } catch (e) { return null; }
 }
@@ -875,16 +936,24 @@ function load() {
 // 行動(状態を変える操作)
 // =====================================================================
 
-function doFuse(a, b) {
-  const child = fuse(a, b);
+// use に指定した触媒を消費して配合する。持っていないものは黙って無視する。
+function doFuse(a, b, use) {
+  const spent = {};
+  for (const id of Object.keys(use || {})) {
+    if (use[id] && ITEMS[id] && (S.items[id] || 0) > 0) {
+      S.items[id]--;
+      spent[id] = true;
+    }
+  }
+  const child = fuse(a, b, spent);
   S.monsters = S.monsters.filter(m => m.uid !== a.uid && m.uid !== b.uid);
   S.monsters.push(child);
   S.fuseCount++;
   const isNew = discover(child.sp);
-  return { child, isNew };
+  return { child, isNew, spent };
 }
 
-function rosterFull() { return S.monsters.length >= ROSTER_CAP; }
+function rosterFull() { return S.monsters.length >= rosterCap(); }
 
 function doExplore(party, area) {
   const team = Array.isArray(party) ? party : [party];
@@ -943,13 +1012,42 @@ function doCup(party, cup) {
   return out;
 }
 
-function doBuyEgg() {
-  if (S.gold < EGG_PRICE || rosterFull()) return null;
-  S.gold -= EGG_PRICE;
-  const m = makeMonster(pick(BASE_FAMILIES) + '1', { origin: 'egg' });
+// 系統を選んだたまごは割高。遺伝は必ず0で、強さは配合で積むことになる。
+function eggPrice(rank, family) {
+  const tier = EGG_TIERS.find(t => t.rank === rank) || EGG_TIERS[0];
+  return Math.round(tier.price * (family ? EGG_PICK_MUL : 1));
+}
+
+function doBuyEgg(rank, family) {
+  const r = EGG_TIERS.some(t => t.rank === rank) ? rank : 1;
+  const f = (family && BASE_FAMILIES.includes(family)) ? family : null;
+  const price = eggPrice(r, f);
+  if (S.gold < price || rosterFull()) return null;
+  S.gold -= price;
+  const m = makeMonster((f || pick(BASE_FAMILIES)) + r, { origin: 'egg' });
   S.monsters.push(m);
   const isNew = discover(m.sp);
-  return { monster: m, isNew };
+  return { monster: m, isNew, price };
+}
+
+function doBuyItem(id) {
+  const it = ITEMS[id];
+  if (!it || S.gold < it.price) return null;
+  S.gold -= it.price;
+  S.items[id] = (S.items[id] || 0) + 1;
+  return { item: it, count: S.items[id] };
+}
+
+function barnPrice() {
+  return S.barn < BARN_STEPS.length ? BARN_STEPS[S.barn] : null;
+}
+
+function doExpandBarn() {
+  const price = barnPrice();
+  if (price == null || S.gold < price) return null;
+  S.gold -= price;
+  S.barn++;
+  return { cap: rosterCap(), price };
 }
 
 // 名前をつける。空にすれば種の名前に戻る。
@@ -1098,39 +1196,110 @@ function statBlock(m) {
   return wrap;
 }
 
+// --------------------------------------------- 商店(牧場タブの中)
+// 売っているのは材料と制御だけ。ステータスそのものは売らない。
+function shopPanel() {
+  const shop = el('div', 'panel');
+  const sh = el('div', 'head');
+  sh.appendChild(el('h2', null, '商店'));
+  sh.appendChild(el('span', 'note', `${S.gold} G`));
+  shop.appendChild(sh);
+
+  // ---- たまご ----
+  shop.appendChild(el('div', 'shop-label', 'たまご'));
+  const fams = BASE_FAMILIES.filter(f => SPECIES.some(sp => sp.family === f && S.dex[sp.id]));
+  if (UI.eggFamily && !fams.includes(UI.eggFamily)) UI.eggFamily = null;
+
+  const chips = el('div', 'chips');
+  const any = el('button', 'chip' + (UI.eggFamily ? '' : ' is-on'));
+  any.appendChild(el('span', null, 'おまかせ'));
+  any.addEventListener('click', () => { UI.eggFamily = null; render(); });
+  chips.appendChild(any);
+  for (const f of fams) {
+    const b = el('button', 'chip' + (UI.eggFamily === f ? ' is-on' : ''));
+    b.appendChild(el('span', null, FAMILIES[f].name));
+    b.appendChild(el('span', 'r', `×${EGG_PICK_MUL}`));
+    b.addEventListener('click', () => { UI.eggFamily = UI.eggFamily === f ? null : f; render(); });
+    chips.appendChild(b);
+  }
+  shop.appendChild(chips);
+
+  const eggs = el('div', 'shop-grid');
+  for (const t of EGG_TIERS) {
+    const price = eggPrice(t.rank, UI.eggFamily);
+    const b = el('button', 'buy');
+    b.appendChild(el('div', 'buy-name', `${rankLabel(t.rank)} のたまご`));
+    b.appendChild(el('div', 'buy-price', `${price} G`));
+    if (S.gold < price || rosterFull()) b.disabled = true;
+    b.addEventListener('click', () => {
+      const r = doBuyEgg(t.rank, UI.eggFamily);
+      if (!r) return;
+      toast(`${spOf(r.monster).name} がかえった!${r.isNew ? '(図鑑に登録)' : ''}`);
+      resort(); save(); render();
+    });
+    eggs.appendChild(b);
+  }
+  shop.appendChild(eggs);
+  shop.appendChild(el('p', 'hint',
+    '遺伝は必ず 0。強さは配合で積むもので、金で買えるのは材料まで。' +
+    '系統を指定できるのは図鑑に載っているものだけ。'));
+
+  // ---- 触媒 ----
+  shop.appendChild(el('div', 'shop-label', '配合の触媒'));
+  for (const [id, it] of Object.entries(ITEMS)) {
+    const have = S.items[id] || 0;
+    const row = el('div', 'item-row');
+    const main = el('div', 'item-main');
+    const nm = el('div', 'item-name');
+    nm.appendChild(el('span', null, it.name));
+    if (have) nm.appendChild(el('span', 'item-have', `所持 ${have}`));
+    main.appendChild(nm);
+    main.appendChild(el('div', 'item-desc', it.desc));
+    row.appendChild(main);
+    const b = el('button', 'buy sm');
+    b.appendChild(el('div', 'buy-price', `${it.price} G`));
+    if (S.gold < it.price) b.disabled = true;
+    b.addEventListener('click', () => {
+      const r = doBuyItem(id);
+      if (!r) return;
+      toast(`${it.name} を買った(所持 ${r.count})`);
+      save(); render();
+    });
+    row.appendChild(b);
+    shop.appendChild(row);
+  }
+  shop.appendChild(el('p', 'hint', '配合タブで、1回の配合につき1つずつ使える。使うと無くなる。'));
+
+  // ---- 牧場の拡張 ----
+  shop.appendChild(el('div', 'shop-label', '牧場を広げる'));
+  const price = barnPrice();
+  const ex = el('button', 'btn ghost',
+    price == null ? `これ以上は広げられない(${rosterCap()}匹)`
+      : `${rosterCap()} → ${rosterCap() + 2} 匹 ・ ${price} G`);
+  if (price == null || S.gold < price) ex.disabled = true;
+  ex.addEventListener('click', () => {
+    const r = doExpandBarn();
+    if (!r) return;
+    toast(`牧場を広げた(${r.cap}匹まで)`);
+    save(); render();
+  });
+  shop.appendChild(ex);
+  return shop;
+}
+
 // --------------------------------------------- 牧場
 function viewRanch(view) {
   const head = el('div', 'head');
   head.appendChild(el('h2', null, '牧場'));
-  head.appendChild(el('span', 'note', `${S.monsters.length} / ${ROSTER_CAP} 匹 ・ 配合 ${S.fuseCount} 回`));
+  head.appendChild(el('span', 'note', `${S.monsters.length} / ${rosterCap()} 匹 ・ 配合 ${S.fuseCount} 回`));
   view.appendChild(head);
 
   if (rosterFull()) {
     view.appendChild(el('p', 'hint',
-      `牧場がいっぱい(${ROSTER_CAP}匹)。これ以上は仲間にできない。配合するか、にがして空きを作ろう。`));
+      `牧場がいっぱい(${rosterCap()}匹)。これ以上は仲間にできない。配合するか、にがすか、牧場を広げよう。`));
   }
 
-  const shop = el('div', 'panel');
-  const sh = el('div', 'head');
-  sh.appendChild(el('h2', null, 'たまご'));
-  sh.appendChild(el('span', 'note', `${EGG_PRICE} G`));
-  shop.appendChild(sh);
-  shop.appendChild(el('p', 'hint', 'ランク1のモンスターが1匹かえる。配合の材料が尽きたらここで補充する。'));
-  const canBuy = S.gold >= EGG_PRICE && !rosterFull();
-  const buy = el('button', 'btn primary',
-    rosterFull() ? '牧場がいっぱい'
-      : S.gold >= EGG_PRICE ? 'たまごをかえす'
-      : `所持金が足りない(${S.gold} / ${EGG_PRICE} G)`);
-  if (!canBuy) buy.disabled = true;
-  buy.addEventListener('click', () => {
-    const r = doBuyEgg();
-    if (!r) return;
-    toast(`${spOf(r.monster).name} がかえった!${r.isNew ? '(図鑑に登録)' : ''}`);
-    resort();
-    save(); render();
-  });
-  shop.appendChild(buy);
-  view.appendChild(shop);
+  view.appendChild(shopPanel());
 
   const list = el('div', 'list');
   for (const m of roster()) {
@@ -1280,9 +1449,16 @@ function viewFuse(view) {
   }
   panel.appendChild(slots);
 
+  // 使う触媒。持っていないものは選べない。
+  const use = {};
+  for (const id of Object.keys(ITEMS)) {
+    if (UI.use[id] && (S.items[id] || 0) > 0) use[id] = true;
+    else UI.use[id] = false;
+  }
+
   // プレビュー欄は常に描画する。2匹目を選んだ瞬間に生えてくると一覧が下にずれてしまうため。
   const ready = picked.length === 2;
-  const pv = ready ? previewFusion(picked[0], picked[1]) : null;
+  const pv = ready ? previewFusion(picked[0], picked[1], use) : null;
   const born = (!picked.length && UI.born != null)
     ? S.monsters.find(m => m.uid === UI.born) : null;
   const res = el('div', 'result');
@@ -1295,8 +1471,8 @@ function viewFuse(view) {
       `${FAMILIES[pv.species.family].name}系 ・ 遺伝 +${pv.gene}` + (pv.surprise ? ' ・ まれに別の系統が出る' : '')));
     txt.appendChild(growthLine(pv.species));
     txt.appendChild(el('div', 't3',
-      `スキルは親から0〜2個ランダムに受け継ぐ(${picked.map(p =>
-        p.skills.map(id => SKILLS[id].name).join('・')).join(' / ')})`));
+      (use.keishou ? 'スキルを親から必ず2個受け継ぐ' : 'スキルは親から0〜2個ランダムに受け継ぐ') +
+      `(${picked.map(p => p.skills.map(id => SKILLS[id].name).join('・')).join(' / ')})`));
   } else if (born) {
     // 配合直後。タブを移動しない代わりに、生まれた子をここで見せる。
     res.appendChild(emblem(born, 'lg'));
@@ -1327,6 +1503,33 @@ function viewFuse(view) {
   view.appendChild(el('p', 'hint',
     'レベルの高い親ほど「遺伝」が子に多く乗り、代を重ねるほど強くなる。'));
 
+  // ---- 触媒 ----
+  // 1つでも持っていれば出す。何も持っていないときに枠だけ出しても邪魔になる。
+  if (Object.keys(ITEMS).some(id => (S.items[id] || 0) > 0)) {
+    const cat = el('div', 'panel');
+    const ch = el('div', 'head');
+    ch.appendChild(el('h2', null, '触媒'));
+    ch.appendChild(el('span', 'note', '配合1回につき1つずつ'));
+    cat.appendChild(ch);
+    for (const [id, it] of Object.entries(ITEMS)) {
+      const have = S.items[id] || 0;
+      if (!have) continue;
+      const on = !!UI.use[id];
+      const b = el('button', 'catalyst' + (on ? ' is-on' : ''));
+      const main = el('div', 'item-main');
+      const nm = el('div', 'item-name');
+      nm.appendChild(el('span', null, it.name));
+      nm.appendChild(el('span', 'item-have', `所持 ${have}`));
+      main.appendChild(nm);
+      main.appendChild(el('div', 'item-desc', it.desc));
+      b.appendChild(main);
+      b.appendChild(el('div', 'cat-mark', on ? '使う' : '—'));
+      b.addEventListener('click', () => { UI.use[id] = !UI.use[id]; render(); });
+      cat.appendChild(b);
+    }
+    view.appendChild(cat);
+  }
+
   const list = el('div', 'list');
   for (const m of roster()) {
     const idx = UI.picks.indexOf(m.uid);
@@ -1346,12 +1549,15 @@ function viewFuse(view) {
   const go = el('button', 'btn primary', ready ? '配合する(親は2匹とも消える)' : '親を2匹えらぶ');
   if (!ready) go.disabled = true;
   go.addEventListener('click', () => {
-    const r = doFuse(picked[0], picked[1]);
+    const r = doFuse(picked[0], picked[1], use);
     UI.picks = [];
     UI.born = r.child.uid;
     UI.bornNew = r.isNew;
+    for (const id of Object.keys(r.spent)) UI.use[id] = false; // 使い切ったので外す
     resort(); // 親2匹が消えてどのみち並びが変わるので、ここで並べ直す
-    toast(`${spOf(r.child).name} が生まれた!${r.isNew ? ' — 新種発見' : ''}`);
+    const used = Object.keys(r.spent).map(id => ITEMS[id].name).join('・');
+    toast(`${spOf(r.child).name} が生まれた!${r.isNew ? ' — 新種発見' : ''}` +
+      (used ? `(${used}を使用)` : ''));
     save();
     render(); // 配合タブに留まる。続けて配合できるようにするため。
   });
@@ -1675,7 +1881,7 @@ function render() {
   view.innerHTML = '';
   setAction(null);
   document.getElementById('hud-gold').textContent = String(S.gold);
-  document.getElementById('hud-count').textContent = `${S.monsters.length}/${ROSTER_CAP}`;
+  document.getElementById('hud-count').textContent = `${S.monsters.length}/${rosterCap()}`;
 
   for (const t of document.querySelectorAll('.tab')) {
     t.classList.toggle('is-on', t.dataset.tab === UI.tab);
