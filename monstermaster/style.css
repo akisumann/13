@@ -852,3 +852,34 @@ button:focus-visible, .mon:focus-visible {
 .pen-mon.is-nap { transform: translate(-50%, calc(-50% + var(--lift, 0px))) scaleX(var(--flip, 1)) scaleY(0.82); }
 .pen-mon.on-hide { opacity: 0.45; }
 .pen-mon.on-wet .emblem { box-shadow: 0 3px 0 -1px color-mix(in srgb, #4aa8ff 55%, transparent); }
+
+/* ===== かけっこ ===== */
+.track { display: flex; flex-direction: column; gap: 6px; }
+.lane {
+  position: relative;
+  height: 34px;
+  border-radius: 6px;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  /* 右端がゴール */
+  border-right: 2px dashed var(--gold);
+}
+.runner {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--rx, 0%) * 0.88);
+  transform: translate(0, -50%);
+  transition: left .3s linear;
+}
+.runner.is-done { filter: saturate(0.5); }
+.lane-tag {
+  position: absolute;
+  right: 6px; top: 50%;
+  transform: translateY(-50%);
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 11px; color: var(--muted);
+  pointer-events: none;
+}
+.lane-tag .nm { color: var(--text); font-weight: 600; }
+.lane-tag .pl { color: var(--gold); font-family: var(--mono); font-weight: 700; }
+@media (prefers-reduced-motion: reduce) { .runner { transition: none; } }

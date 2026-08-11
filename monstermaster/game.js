@@ -422,6 +422,7 @@ function makeMonster(speciesId, opts) {
     // 指定がなければ、その種族がよく持つスキルを1つ覚えて生まれる
     skills: o.skills || [pick(sp.innate)],
     nature: o.nature || randomNature(),
+    wins: o.wins || 0,          // かけっこの1着回数(遊びの記録)
     // ---- 系譜 ----
     name: o.name || null,        // つけた名前。無ければ種の名前で呼ぶ
     gen: o.gen || 1,             // 何代目か。配合するたびに1つ増える
@@ -991,6 +992,7 @@ let UI = {
   cup: 1, cupTeam: [], cupResult: null,
   eggFamily: null, use: {},
   pen: {}, penNodes: null, penCaption: null, penTerrain: null, penGroundKey: null, penGroundURL: null,
+  race: null, raceNodes: null, raceNote: null,
   born: null, bornNew: false, // 直前に配合で生まれた子(配合タブに留まったまま結果を見せる)
   order: null,                // 表示順(uidの配列)。null なら次の描画で強さ順に並べ直す
 };
@@ -1051,6 +1053,7 @@ function load() {
       if (!m.origin) m.origin = 'wild';
       // 性格の導入前のセーブデータ。持っていなければここで1つ決める。
       if (!NATURE_BY_ID[m.nature]) m.nature = randomNature();
+      m.wins = Math.max(0, m.wins | 0);
     }
     return {
       gold: d.gold || 0,
@@ -1897,6 +1900,131 @@ function penView() {
   return wrap;
 }
 
+// =====================================================================
+// かけっこ
+//
+// 牧場の遊び。ステータスは一切見ない。速さも運も全員同じで、
+// 違うのは走り方の描写だけ(性格で言い回しが変わる)。
+// 強い個体が勝つ仕組みにすると、遊びではなく順位表になってしまう。
+// =====================================================================
+
+const RACE = {
+  tickMs: 320,
+  goal: 100,
+  step: [2.2, 5.4],   // 1歩の進み。全員このくらい。
+  eventP: 0.15,       // 何かが起きる割合。有利も不利も同じ確率で引く。
+  slots: 6,
+};
+
+// 出来事。進みの増減と、そのときの言い回し。
+// 誰がどれを引くかは完全に運で、性格は言い方だけを変える。
+const RACE_EVENTS = [
+  { d:  6, t: 'ぐんと伸びた' },
+  { d:  4, t: '外から追い上げた' },
+  { d:  3, t: '前に出た' },
+  { d: -3, t: 'よそ見をした' },
+  { d: -4, t: 'つまずいた' },
+  { d: -6, t: '立ち止まってしまった' },
+];
+
+// 性格ごとの走り方(描写だけ)
+const RACE_STYLE = {
+  spd: 'ぴょんぴょん跳ねながら', dex: '小刻みに', atk: '突っ込むように',
+  hp:  'どっしりと',           def: 'のしのしと', int: '様子を見ながら',
+  mp:  'ふわふわと',           null: 'まっすぐに',
+};
+
+function raceStart() {
+  const pool = S.monsters.slice();
+  for (let i = pool.length - 1; i > 0; i--) { const j = ri(0, i); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  const runners = pool.slice(0, RACE.slots);
+  if (runners.length < 2) return null;
+  UI.race = {
+    lanes: runners.map(m => ({ uid: m.uid, x: 0 })),
+    done: [], over: false, note: 'よーい',
+  };
+  return UI.race;
+}
+
+function raceStep() {
+  const r = UI.race;
+  if (!r || r.over) return;
+  let note = null;
+  const reached = [];
+  for (const lane of r.lanes) {
+    if (r.done.includes(lane.uid)) continue;
+    const m = S.monsters.find(x => x.uid === lane.uid);
+    if (!m) { r.done.push(lane.uid); continue; }
+    let d = RACE.step[0] + Math.random() * (RACE.step[1] - RACE.step[0]);
+    if (Math.random() < RACE.eventP) {
+      const ev = pick(RACE_EVENTS);
+      d += ev.d;
+      if (!note) note = `${nameOf(m)} が ${ev.t}`;
+    }
+    lane.x = Math.max(0, lane.x + d);
+    if (lane.x >= RACE.goal) reached.push({ lane, m });
+  }
+
+  // 同じ歩でゴールした者の順位。踏み込んだ距離が大きいほうを上にする。
+  // ここを並び順のままにすると、上のレーンが同着をぜんぶ持っていってしまう。
+  reached.sort((a, b) => (b.lane.x - a.lane.x) || (Math.random() - 0.5));
+  for (const { lane, m } of reached) {
+    lane.x = RACE.goal;
+    r.done.push(lane.uid);
+    const place = r.done.length;
+    note = `${place}着 ${nameOf(m)}`;
+    if (place === 1) m.wins = (m.wins || 0) + 1;
+  }
+  if (note) r.note = note;
+  if (r.done.length >= r.lanes.length) {
+    r.over = true;
+    const first = S.monsters.find(x => x.uid === r.done[0]);
+    if (first) r.note = `${nameOf(first)} の勝ち`;
+    save();
+  }
+}
+
+function raceView() {
+  const r = UI.race;
+  const panel = el('div', 'panel');
+  const head = el('div', 'head');
+  head.appendChild(el('h2', null, 'かけっこ'));
+  UI.raceNote = el('span', 'note', r ? r.note : 'ステータスは関係ない。ぜんぶ運。');
+  head.appendChild(UI.raceNote);
+  panel.appendChild(head);
+
+  if (r) {
+    const track = el('div', 'track');
+    UI.raceNodes = {};
+    r.lanes.forEach((lane, i) => {
+      const m = S.monsters.find(x => x.uid === lane.uid);
+      const row = el('div', 'lane');
+      const n = el('div', 'runner');
+      if (m) n.appendChild(emblem(m, 'sm'));
+      n.style.setProperty('--rx', lane.x + '%');
+      const place = r.done.indexOf(lane.uid);
+      if (place >= 0) n.classList.add('is-done');
+      UI.raceNodes[lane.uid] = n;
+      row.appendChild(n);
+      const tag = el('div', 'lane-tag');
+      tag.appendChild(el('span', 'nm', m ? nameOf(m) : '？'));
+      if (m) tag.appendChild(el('span', 'st', RACE_STYLE[natureOf(m).up] || RACE_STYLE.null));
+      if (place >= 0) tag.appendChild(el('span', 'pl', `${place + 1}着`));
+      row.appendChild(tag);
+      track.appendChild(row);
+    });
+    panel.appendChild(track);
+  }
+
+  const go = el('button', 'btn ghost',
+    !r ? 'かけっこをさせる' : r.over ? 'もう一度' : '走っている…');
+  if (S.monsters.length < 2) { go.disabled = true; go.textContent = '2匹いないと走れない'; }
+  else if (r && !r.over) go.disabled = true;
+  go.addEventListener('click', () => { if (raceStart()) render(); });
+  panel.appendChild(go);
+  return panel;
+}
+
 // --------------------------------------------- 商店(牧場タブの中)
 // 売っているのは材料と制御だけ。ステータスそのものは売らない。
 function shopPanel() {
@@ -2107,6 +2235,7 @@ function viewRanch(view) {
   view.appendChild(head);
 
   view.appendChild(penView());
+  view.appendChild(raceView());
 
   if (rosterFull()) {
     view.appendChild(el('p', 'hint',
@@ -2133,6 +2262,7 @@ function viewRanch(view) {
     d.appendChild(el('p', 'lore', spOf(m).flavor));
     {
       const nat = natureOf(m);
+      if (m.wins) d.appendChild(el('p', 'hint', `かけっこ ${m.wins} 勝。`));
       d.appendChild(el('p', 'hint',
         `性格は〈${nat.name}〉。` + (nat.up
           ? `${STATS.find(s => s.key === nat.up).label}が ${Math.round(NATURE.swing * 100)}% 高く、` +
@@ -2735,6 +2865,21 @@ function init() {
   render();
   // にわを動かす。描き直しではなく位置だけ変えるので、操作の邪魔をしない。
   if (typeof setInterval !== 'undefined') {
+    const rt = setInterval(() => {
+      if (UI.tab !== 'ranch' || !UI.race || UI.race.over || !UI.raceNodes) return;
+      const wasOver = UI.race.over;
+      raceStep();
+      for (const lane of UI.race.lanes) {
+        const n = UI.raceNodes[lane.uid];
+        if (!n) continue;
+        n.style.setProperty('--rx', lane.x + '%');
+        if (UI.race.done.includes(lane.uid)) n.classList.add('is-done');
+      }
+      if (UI.raceNote) UI.raceNote.textContent = UI.race.note;
+      if (UI.race.over !== wasOver) render();   // 終わったら順位を出すため描き直す
+    }, RACE.tickMs);
+    if (rt && typeof rt.unref === 'function') rt.unref();
+
     const t = setInterval(penStep, PEN.tickMs);
     // Node で読み込んだときに、この時計だけでプロセスが終わらなくなるのを防ぐ
     if (t && typeof t.unref === 'function') t.unref();
