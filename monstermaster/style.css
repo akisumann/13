@@ -135,13 +135,13 @@ button:focus-visible, .mon:focus-visible {
   max-width: 560px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   background: var(--panel);
   border-top: 1px solid var(--line);
 }
 .tab {
-  font-size: 13px;
-  letter-spacing: 0.08em;
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
   color: var(--muted);
   position: relative;
 }
@@ -263,6 +263,12 @@ button:focus-visible, .mon:focus-visible {
   align-items: baseline;
   gap: 7px;
   flex-wrap: wrap;
+}
+/* 名前をつけた個体に添える種の名前 */
+.mon-species {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
 }
 .rank {
   font-family: var(--mono);
@@ -560,4 +566,88 @@ button:focus-visible, .mon:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
+}
+
+/* ===== 語り(フレーバー・系譜・ライバル) ===== */
+.lore {
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: var(--muted);
+  border-left: 2px solid var(--line-hi);
+  padding-left: 10px;
+}
+
+.lineage { display: flex; flex-direction: column; gap: 6px; }
+.lin-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.lin-main { min-width: 0; }
+.lin-name { font-size: 13.5px; font-weight: 600; }
+.lin-sub { font-size: 11px; color: var(--muted); }
+.lin-none {
+  font-size: 12.5px;
+  color: var(--muted);
+  padding: 8px 10px;
+  background: var(--ground);
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+}
+
+.rename { display: flex; gap: 8px; }
+.rename input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--ground);
+  border: 1px solid var(--line-hi);
+  border-radius: 6px;
+  padding: 9px 11px;
+}
+.rename input::placeholder { color: var(--muted); }
+.rename .btn { flex: 0 0 auto; }
+
+/* ライバル */
+.rival {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.rival .face {
+  flex: 0 0 auto;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 15px; font-weight: 700;
+  color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 14%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--gold) 60%, transparent);
+}
+.rival .who { min-width: 0; }
+.rival .rn { font-size: 15px; font-weight: 700; }
+.rival .rt { font-size: 11.5px; color: var(--muted); letter-spacing: 0.08em; }
+.rival .rmark { margin-left: auto; font-size: 11px; color: var(--gold); font-weight: 700; }
+.line {
+  font-size: 13px;
+  line-height: 1.85;
+  color: var(--text);
+}
+.line.dim { color: var(--muted); }
+
+/* 図鑑の一文 */
+.dex-flavor {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  line-height: 1.75;
+  color: var(--muted);
+  padding: 2px 2px 6px;
 }

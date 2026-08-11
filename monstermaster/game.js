@@ -152,6 +152,40 @@ const SPECIES = [
   innate: innate.split(' '),
 }));
 
+// 図鑑に出る一文。仕組みには一切影響しない。
+const FLAVOR = {
+  fire1: '燃え残りの灰から生まれる。触れると熱いが、火傷はしない。',
+  fire2: '尾の火が消えているあいだは眠っている。眠りは短い。',
+  fire3: '火の中を歩くのではない。歩いたところが火になる。',
+  fire4: '怒りではなく、退屈で燃える。',
+  fire5: '山がひとつ、立ち上がったもの。',
+  water1: '水たまりの中で数を増やす。減るのも早い。',
+  water2: '体の八割が水で、二割が意地。',
+  water3: '川が曲がっているのは、これが通った跡だという。',
+  water4: '声で水を動かす。歌ではない。',
+  water5: '満ち引きに合わせて眠り、また起きる。',
+  grass1: '双葉のうちは動かない。動きだしたら、もう双葉ではない。',
+  grass2: '巻きついたものを離さない。離すのは枯れたときだけ。',
+  grass3: '森が一本だけ、こちらを見返している。',
+  grass4: '根が地脈に届いている。抜けば水が枯れる。',
+  grass5: '立っているだけで、まわりが緑になる。',
+  rock1: '道端にいる。蹴ると怒る。',
+  rock2: '転がって移動する。止まるのは下手。',
+  rock3: '誰かが積んだ形のまま、動きだした。',
+  rock4: '割るには、同じだけの硬さがいる。',
+  rock5: '何度も砕かれ、そのたびに密になった。',
+  wind1: 'つかまえた者はいない。見た者は多い。',
+  wind2: '通りすぎたあとに、においだけ残る。',
+  wind3: '速すぎて、輪郭が二つに見える。',
+  wind4: '近づく前に、空のほうが変わる。',
+  wind5: '翼を広げると、その下だけ夜になる。',
+  dark3: '影が先に動く。本体は後から追う。',
+  dark4: '目を合わせた者から順に、その顔を忘れていく。',
+  dark5: '光を吸っているのではない。光のほうが避けている。',
+  light5: '闇を二つ重ねると、なぜか光になる。理由は誰も知らない。',
+};
+for (const sp of SPECIES) sp.flavor = FLAVOR[sp.id] || '';
+
 // =====================================================================
 // 成長係数(種族値)
 // レベルアップでどれだけ伸びやすいかを F〜S の7段階で表す。
@@ -173,11 +207,16 @@ const FUSION_TABLE = {
 };
 
 const AREAS = [
-  { id: 1, name: 'はじまりの草原', rank: 1, gold: [10, 20] },
-  { id: 2, name: 'ぬかるみの沼',   rank: 2, gold: [22, 40] },
-  { id: 3, name: '岩窟回廊',       rank: 3, gold: [45, 75] },
-  { id: 4, name: '嵐の尖塔',       rank: 4, gold: [80, 130] },
-  { id: 5, name: '虚無の深淵',     rank: 5, gold: [150, 240] },
+  { id: 1, name: 'はじまりの草原', rank: 1, gold: [10, 20],
+    lore: '見晴らしがいいだけの草地。ここで転ぶようなら、この先はない。' },
+  { id: 2, name: 'ぬかるみの沼',   rank: 2, gold: [22, 40],
+    lore: '足を取られる。速さが意味を失う、最初の場所。' },
+  { id: 3, name: '岩窟回廊',       rank: 3, gold: [45, 75],
+    lore: '天井の裂け目から光が落ちてくる。音がよく響く。' },
+  { id: 4, name: '嵐の尖塔',       rank: 4, gold: [80, 130],
+    lore: '塔ではない。風がその形に立っているだけだ。' },
+  { id: 5, name: '虚無の深淵',     rank: 5, gold: [150, 240],
+    lore: '底がない。落ちた者の数は、誰も数えていない。' },
 ];
 
 const EGG_PRICE = 60;
@@ -229,8 +268,16 @@ function makeMonster(speciesId, opts) {
     gene: o.gene || 0,
     // 指定がなければ、その種族がよく持つスキルを1つ覚えて生まれる
     skills: o.skills || [pick(sp.innate)],
+    // ---- 系譜 ----
+    name: o.name || null,        // つけた名前。無ければ種の名前で呼ぶ
+    gen: o.gen || 1,             // 何代目か。配合するたびに1つ増える
+    parents: o.parents || null,  // [{ name, sp }, { name, sp }]
+    origin: o.origin || 'wild',  // wild / egg / fuse / start
   };
 }
+
+// 表示に使う呼び名。名前をつけていなければ種の名前。
+function nameOf(m) { return m.name || spOf(m).name; }
 
 // スキル合計値 = レベル ÷ 2。持っているスキルで割り、余りは先頭から配る。
 function skillLevels(m) {
@@ -354,7 +401,14 @@ function fuse(a, b) {
   const family = fuseFamily(a, b);
   const rank = fuseRank(a, b, family);
   const sp = speciesFor(family, rank);
-  return makeMonster(sp.id, { gene: fuseGene(a, b), skills: inheritSkills(a, b, sp) });
+  return makeMonster(sp.id, {
+    gene: fuseGene(a, b),
+    skills: inheritSkills(a, b, sp),
+    // 系譜。代は「親の深いほう + 1」で数える。
+    gen: Math.max(a.gen || 1, b.gen || 1) + 1,
+    parents: [{ name: nameOf(a), sp: a.sp }, { name: nameOf(b), sp: b.sp }],
+    origin: 'fuse',
+  });
 }
 
 // 実行前に見せる予測。闇が出うる組み合わせは伏せる。
@@ -548,7 +602,7 @@ function explore(party, area, canCapture) {
       if (canCapture === false) out.missedCapture = true;
       else {
         const w = pick(wilds);
-        out.captured = makeMonster(w.sp, { level: 1, gene: w.gene, skills: w.skills.slice() });
+        out.captured = makeMonster(w.sp, { level: 1, gene: w.gene, skills: w.skills.slice(), origin: 'wild' });
       }
     }
   } else {
@@ -605,6 +659,50 @@ const CUPS = [
   { id: 5, name: '虚無杯', rank: 5, rounds: 5, prize: 5000 },
 ];
 
+// 各大会の決勝には、決まったマスターが待っている。
+// 手持ちの1匹だけが固定で、残り2匹はその大会の相手と同じ作られ方をする。
+// 強さそのものは他の相手と変わらない(こちらの編成に合わせて組まれる)ので、
+// ライバルは難度ではなく「顔」を足すためのもの。
+const RIVALS = {
+  1: { name: 'ミル',   title: '草原の子',
+       ace: 'grass1',
+       before: '「その子、つよそう。……でもうちのフタバも、まけないよ」',
+       again:  '「またきた! こんどはまけないから」',
+       win:    '「……つよいね。どうやったら、そんなに強くなるの?」',
+       lose:   '「やった! フタバ、すごいすごい!」',
+       after:  'いちばん最初に会う子。フタバしか持っていないし、それでいいと思っている。' },
+  2: { name: 'ガイ',   title: '沼守り',
+       ace: 'water2',
+       before: '「沼の水は重い。ここで走れると思うな」',
+       again:  '「二度目だ。水のほうは、おまえを覚えているぞ」',
+       win:    '「……沈まなかったか。行け」',
+       lose:   '「浅かったな」',
+       after:  '沼に人を通す仕事をしている。通す相手は自分で選ぶ。' },
+  3: { name: 'ドロテ', title: '石工',
+       ace: 'rock3',
+       before: '「石は急がない。急ぐのはいつも、そっちだ」',
+       again:  '「もう一度、叩いてみるか」',
+       win:    '「割れたか。……いい打ち方だった」',
+       lose:   '「削れなかったな」',
+       after:  '岩窟の柱を積んだ本人。ゴーレットは積み残しから生まれたものだという。' },
+  4: { name: 'セレン', title: '嵐読み',
+       ace: 'wind4',
+       before: '「風はもう読んだ。あなたがどう動くかも」',
+       again:  '「今度こそ、読みきる」',
+       win:    '「読み違えた。……久しぶりだ、この感じ」',
+       lose:   '「読んだとおり」',
+       after:  '尖塔がいつ崩れるかを見張っている。まだ崩れていない。' },
+  5: { name: 'ノア',   title: '深淵の',
+       ace: 'light5',
+       before: '「ここまで来たか。……この子も、あなたと同じだけ代を重ねている」',
+       again:  '「まだ足りない。もう一度、並んでみせろ」',
+       win:    '「……越えたのか。ならば、この光はあなたのものだ」',
+       lose:   '「深淵は、覗き返す」',
+       after:  '闇を二つ重ねて光にした最初の一人。以来ずっと深淵の底に座っている。' },
+};
+
+function rivalOf(cup) { return RIVALS[cup.id] || null; }
+
 function cupUnlocked(cup, monsters) {
   return monsters.some(m => spOf(m).rank >= cup.rank);
 }
@@ -637,14 +735,16 @@ function cupFoes(cup, i, party) {
   // 一回戦は baseGene の g0 倍から始まり、決勝で baseGene + geneEdge になる
   const gene0 = baseGene * CUP.g0, gene1 = baseGene + CUP.geneEdge;
   const pool = speciesOfRank(cup.rank).filter(s => s.family !== 'light');
-  const champion = i === cup.rounds - 1 && cup.rank === 5;
+  // 決勝にはライバルが自分の1匹を連れてくる
+  const rival = i === cup.rounds - 1 ? rivalOf(cup) : null;
 
   return Array.from({ length: CUP.entry }, (_, k) => {
-    const sp = (champion && k === 0) ? speciesById('light5') : pick(pool);
+    const sp = (rival && k === 0) ? speciesById(rival.ace) : pick(pool);
     const cap = maxLevelOf({ sp: sp.id });
     return makeMonster(sp.id, {
       level: clamp(Math.round(baseLv * lvRate), 1, cap),
       gene: Math.round(gene0 + (gene1 - gene0) * t),
+      name: (rival && k === 0) ? `${rival.name}の${sp.name}` : null,
     });
   });
 }
@@ -684,6 +784,8 @@ function runCup(party, cup) {
   const won = rounds.filter(r => r.win).length;
   return {
     cup, rounds, cleared, won,
+    // 決勝まで行ったかどうかで、ライバルの台詞が出るかが決まる
+    metRival: rounds.length === cup.rounds,
     // 優勝すれば満額。途中敗退でも勝った回戦のぶんだけ持ち帰れる。
     gold: cleared ? cup.prize : Math.floor(cup.prize * 0.15 * won),
     exp: Math.round((cup.rank * 25 + 40) * (won + (cleared ? 2 : 0))),
@@ -710,7 +812,7 @@ function newState() {
   const starters = [];
   for (let i = 0; i < 3; i++) {
     const f = fams.splice(ri(0, fams.length - 1), 1)[0];
-    starters.push(makeMonster(f + '1'));
+    starters.push(makeMonster(f + '1', { origin: 'start' }));
   }
   return {
     gold: 0,
@@ -720,6 +822,7 @@ function newState() {
     exploreCount: 0,
     cups: {},      // 大会ID → { best: 到達した最高の回戦数, won: 優勝したか }
     cupCount: 0,
+    rivals: {},    // 大会ID → { met: 決勝で会ったか, beaten: 勝ったか, losses: 負けた回数 }
   };
 }
 
@@ -749,6 +852,11 @@ function load() {
     for (const m of d.monsters) {
       m.skills = (m.skills || []).filter(id => SKILLS[id]);
       if (!m.skills.length) m.skills = [pick(speciesById(m.sp).innate)];
+      // 系譜の導入前のセーブデータ。血筋は分からないので1代目として扱う。
+      if (m.name === undefined) m.name = null;
+      if (!m.gen) m.gen = 1;
+      if (m.parents === undefined) m.parents = null;
+      if (!m.origin) m.origin = 'wild';
     }
     return {
       gold: d.gold || 0,
@@ -758,6 +866,7 @@ function load() {
       exploreCount: d.exploreCount || 0,
       cups: d.cups || {},
       cupCount: d.cupCount || 0,
+      rivals: d.rivals || {},
     };
   } catch (e) { return null; }
 }
@@ -816,16 +925,38 @@ function doCup(party, cup) {
   out.firstWin = out.cleared && !rec.won;
   S.cups[cup.id] = { best: Math.max(rec.best, out.won), won: rec.won || out.cleared };
   S.cupCount++;
+
+  // ライバルとのやりとり。決勝まで行けなければ会えない。
+  const rival = rivalOf(cup);
+  if (rival) {
+    const rr = S.rivals[cup.id] || { met: false, beaten: false, losses: 0 };
+    out.rival = rival;
+    out.rivalFirstMeet = out.metRival && !rr.met;
+    out.rivalFirstWin = out.cleared && !rr.beaten;
+    if (out.metRival && !out.cleared) rr.losses++;
+    S.rivals[cup.id] = {
+      met: rr.met || out.metRival,
+      beaten: rr.beaten || out.cleared,
+      losses: rr.losses,
+    };
+  }
   return out;
 }
 
 function doBuyEgg() {
   if (S.gold < EGG_PRICE || rosterFull()) return null;
   S.gold -= EGG_PRICE;
-  const m = makeMonster(pick(BASE_FAMILIES) + '1');
+  const m = makeMonster(pick(BASE_FAMILIES) + '1', { origin: 'egg' });
   S.monsters.push(m);
   const isNew = discover(m.sp);
   return { monster: m, isNew };
+}
+
+// 名前をつける。空にすれば種の名前に戻る。
+function doRename(mon, name) {
+  const n = String(name == null ? '' : name).trim().slice(0, 12);
+  mon.name = n || null;
+  return mon.name;
 }
 
 function doRelease(mon) {
@@ -898,12 +1029,15 @@ function monRow(m, opts) {
 
   const main = el('div', 'mon-main');
   const name = el('div', 'mon-name');
-  name.appendChild(el('span', null, spOf(m).name));
+  name.appendChild(el('span', null, nameOf(m)));
   name.appendChild(el('span', 'rank', rankLabel(spOf(m).rank)));
+  // 名前をつけていれば、種の名前は小さく添える
+  if (m.name) name.appendChild(el('span', 'mon-species', spOf(m).name));
   main.appendChild(name);
   const cap = maxLevelOf(m);
   main.appendChild(el('div', 'mon-sub',
-    `Lv.${m.level}${m.level >= cap ? '(最大)' : ''} ・ 遺伝 +${m.gene}`));
+    `Lv.${m.level}${m.level >= cap ? '(最大)' : ''} ・ 遺伝 +${m.gene}` +
+    ((m.gen || 1) > 1 ? ` ・ ${m.gen}代目` : '')));
   const sk = el('div', 'mon-skills');
   for (const s of skillLevels(m)) {
     sk.appendChild(el('span', 'chip-skill' + (s.level ? '' : ' is-dormant'),
@@ -1009,9 +1143,11 @@ function viewRanch(view) {
 
     const d = el('div', 'panel');
     const dh = el('div', 'head');
-    dh.appendChild(el('h2', null, spOf(m).name));
-    dh.appendChild(el('span', 'note', `${famOf(m).name}系 ・ ${rankLabel(spOf(m).rank)}`));
+    dh.appendChild(el('h2', null, nameOf(m)));
+    dh.appendChild(el('span', 'note',
+      `${m.name ? spOf(m).name + ' ・ ' : ''}${famOf(m).name}系 ・ ${rankLabel(spOf(m).rank)}`));
     d.appendChild(dh);
+    d.appendChild(el('p', 'lore', spOf(m).flavor));
     d.appendChild(statBlock(m));
 
     // スキル(合計値はレベルの半分。複数持つとその分1つあたりが下がる)
@@ -1044,12 +1180,65 @@ function viewRanch(view) {
         : `Lv.${m.level} ・ 次のレベルまで ${expToNext(m) - m.exp} exp ・ 上限 Lv.${cap}`));
     d.appendChild(el('p', 'hint',
       '右のF〜Sは成長係数。レベルアップでの伸びやすさを表す種ごとの固定値で、遺伝や育て方では変わらない。'));
+
+    // ---- 系譜 ----
+    const gh = el('div', 'head');
+    gh.appendChild(el('h2', null, '系譜'));
+    gh.appendChild(el('span', 'note', `${m.gen || 1}代目`));
+    d.appendChild(gh);
+
+    const tree = el('div', 'lineage');
+    if (m.parents && m.parents.length === 2) {
+      for (const p of m.parents) {
+        const sp = speciesById(p.sp);
+        const row = el('div', 'lin-row');
+        const em = el('div', 'emblem sm', sp ? FAMILIES[sp.family].glyph : '?');
+        if (sp) em.style.setProperty('--fc', FAMILIES[sp.family].color);
+        row.appendChild(em);
+        const t = el('div', 'lin-main');
+        t.appendChild(el('div', 'lin-name', p.name));
+        if (sp && p.name !== sp.name) t.appendChild(el('div', 'lin-sub', sp.name));
+        row.appendChild(t);
+        tree.appendChild(row);
+      }
+    } else {
+      const ORIGIN = {
+        wild: 'この地で拾われた個体。親は分からない。',
+        egg:  'たまごからかえった個体。親は分からない。',
+        start: '最初から連れていた個体。ここから血が始まる。',
+      };
+      tree.appendChild(el('div', 'lin-none', ORIGIN[m.origin] || ORIGIN.wild));
+    }
+    d.appendChild(tree);
+
+    // 名前をつける
+    const nameBox = el('div', 'rename');
+    const input = el('input');
+    input.type = 'text';
+    input.maxLength = 12;
+    input.placeholder = spOf(m).name;
+    input.value = m.name || '';
+    input.addEventListener('click', (ev) => ev.stopPropagation());
+    const ok = el('button', 'btn ghost', '名前をつける');
+    ok.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const before = nameOf(m);
+      const after = doRename(m, input.value);
+      save(); render();
+      toast(after ? `${before} を ${after} と呼ぶことにした` : `名前を外した(${spOf(m).name})`);
+    });
+    nameBox.appendChild(input);
+    nameBox.appendChild(ok);
+    d.appendChild(nameBox);
+    d.appendChild(el('p', 'hint',
+      '名前をつけると、配合したときに子の系譜へ残る。空にすれば種の名前に戻る。'));
+
     if (S.monsters.length > 1) {
       const rel = el('button', 'btn ghost', 'にがす');
       rel.addEventListener('click', (ev) => {
         ev.stopPropagation();
         if (doRelease(m)) {
-          toast(`${spOf(m).name} をにがした`);
+          toast(`${nameOf(m)} をにがした`);
           UI.open = null;
           UI.picks = UI.picks.filter(u => u !== m.uid);
           resort();
@@ -1193,6 +1382,7 @@ function viewExplore(view) {
   UI.area = area.id;
   view.appendChild(el('div', 'area-desc',
     `${rankLabel(area.rank)}の野生 ・ ${area.gold[0]}〜${area.gold[1]} G ・ 勝つと${Math.round(CAPTURE_RATE * 100)}%で仲間になる`));
+  view.appendChild(el('p', 'lore', area.lore));
 
   // 結果スロット(高さ固定・一覧より上)。中身が増減してもレイアウトが動かない。
   const out = el('div', 'panel result-slot');
@@ -1299,6 +1489,25 @@ function viewCup(view) {
     `${cup.rounds}回戦 ・ ${rankLabel(cup.rank)}の出場者 ・ 優勝賞金 ${cup.prize} G` +
     (rec.won ? ' ・ 優勝済み' : rec.best ? ` ・ 最高 ${rec.best}回戦突破` : '')));
 
+  // 決勝で待っているマスター。会う前は名前を伏せておく。
+  const rival = rivalOf(cup);
+  const rr = S.rivals[cup.id] || { met: false, beaten: false, losses: 0 };
+  if (rival) {
+    const rp = el('div', 'panel');
+    const card = el('div', 'rival');
+    card.appendChild(el('div', 'face', rr.met ? rival.name.slice(0, 1) : '?'));
+    const who = el('div', 'who');
+    who.appendChild(el('div', 'rn', rr.met ? rival.name : '？？？'));
+    who.appendChild(el('div', 'rt', rr.met ? rival.title : '決勝で待っている'));
+    card.appendChild(who);
+    if (rr.beaten) card.appendChild(el('div', 'rmark', '撃破'));
+    else if (rr.losses) card.appendChild(el('div', 'rmark', `${rr.losses}敗`));
+    rp.appendChild(card);
+    rp.appendChild(el('div', 'line' + (rr.met ? '' : ' dim'),
+      rr.met ? (rr.beaten ? rival.after : rival.again) : 'まだ会っていない。決勝まで勝ち上がれば分かる。'));
+    view.appendChild(rp);
+  }
+
   // 結果(高さ固定・一覧より上)
   const out = el('div', 'panel result-slot');
   const r = UI.cupResult;
@@ -1318,6 +1527,12 @@ function viewCup(view) {
     log.appendChild(el('div', r.cleared ? 'win' : 'lose',
       r.cleared ? `優勝! 賞金 ${r.gold} G` : `${r.won}回戦で敗退 ・ ${r.gold} G`));
     if (r.firstWin) log.appendChild(el('div', 'get', `${r.cup.name} 初優勝`));
+    // 決勝まで行ったときだけ、ライバルの台詞が出る
+    if (r.rival && r.metRival) {
+      log.appendChild(el('div', 'get', `${r.rival.name}(${r.rival.title})`));
+      log.appendChild(el('div', null,
+        r.rivalFirstMeet ? r.rival.before : r.cleared ? r.rival.win : r.rival.lose));
+    }
     log.appendChild(el('div', null,
       `経験値 +${r.exp} を ${r.gains.length}匹で山分け(1匹あたり +${r.share})`));
     if (r.levelUps > 0) {
@@ -1408,6 +1623,8 @@ function viewDex(view) {
         cell.appendChild(el('div', 'ds', s.innate.map(id => SKILLS[id].name).join('・')));
       }
       grid.appendChild(cell);
+      // 見つけた種にだけ一文が付く
+      if (known && s.flavor) grid.appendChild(el('p', 'dex-flavor', `${s.name} — ${s.flavor}`));
     }
     sec.appendChild(grid);
     view.appendChild(sec);
