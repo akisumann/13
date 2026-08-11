@@ -1947,21 +1947,25 @@ const RACE = {
   eventP: 0.15,       // 何かが起きる割合。有利も不利も同じ確率で引く。
   slots: 6,
   legs: 4,            // 走路を何区間に割るか
-  good: 1.35,         // 得意な区間での進み
-  bad:  0.70,         // 苦手な区間での進み
+  good: 1.35,         // 系統が合う区間での進み
+  bad:  0.70,         // 系統が合わない区間での進み
+  natGood: 1.18,      // 性格が合う区間での進み
+  natBad:  0.85,      // 性格が合わない区間での進み
 };
 
 // 区間。走るたびに4つを引き直すので、有利な系統も毎回変わる。
 // どの系統も「得意」に1回・「苦手」に1回ずつ出てくるので、
 // たくさん走らせれば誰も得をしない。
+// 系統だけでなく、性格の得意ステータスも見る。
+// こちらも7つのステータスが「得意」に1回・「苦手」に1回ずつ出てくる。
 const RACE_LEGS = [
-  { id: 'meadow', name: '草原',     good: 'grass', bad: 'rock',  c: '#5fd07a' },
-  { id: 'stream', name: '水路',     good: 'water', bad: 'fire',  c: '#4aa8ff' },
-  { id: 'scree',  name: '岩場',     good: 'rock',  bad: 'wind',  c: '#d0a24a' },
-  { id: 'gale',   name: '風道',     good: 'wind',  bad: 'grass', c: '#7ee0d0' },
-  { id: 'ember',  name: '火床',     good: 'fire',  bad: 'water', c: '#ff6b4a' },
-  { id: 'gloom',  name: '暗がり',   good: 'dark',  bad: 'light', c: '#a76bff' },
-  { id: 'glare',  name: '陽だまり', good: 'light', bad: 'dark',  c: '#ffd95c' },
+  { id: 'meadow', name: '草原',     good: 'grass', bad: 'rock',  ng: 'spd', nb: 'hp',  c: '#5fd07a' },
+  { id: 'stream', name: '水路',     good: 'water', bad: 'fire',  ng: 'mp',  nb: 'atk', c: '#4aa8ff' },
+  { id: 'scree',  name: '岩場',     good: 'rock',  bad: 'wind',  ng: 'def', nb: 'spd', c: '#d0a24a' },
+  { id: 'gale',   name: '風道',     good: 'wind',  bad: 'grass', ng: 'dex', nb: 'def', c: '#7ee0d0' },
+  { id: 'ember',  name: '火床',     good: 'fire',  bad: 'water', ng: 'atk', nb: 'mp',  c: '#ff6b4a' },
+  { id: 'gloom',  name: '暗がり',   good: 'dark',  bad: 'light', ng: 'int', nb: 'dex', c: '#a76bff' },
+  { id: 'glare',  name: '陽だまり', good: 'light', bad: 'dark',  ng: 'hp',  nb: 'int', c: '#ffd95c' },
 ];
 
 // いま何区間目にいるか
@@ -2018,9 +2022,13 @@ function raceStep() {
     // いる区間との相性。走るたびに区間が変わるので、毎回ちがう顔ぶれが伸びる。
     const leg = (r.legs || [])[legAt(lane.x)];
     const fam = spOf(m).family;
+    const up = natureOf(m).up;
     if (leg) {
       if (leg.good === fam) d *= RACE.good;
       else if (leg.bad === fam) d *= RACE.bad;
+      // 性格の効きは系統より小さい。両方そろうといちばん伸びる。
+      if (up && leg.ng === up) d *= RACE.natGood;
+      else if (up && leg.nb === up) d *= RACE.natBad;
     }
     if (Math.random() < RACE.eventP) {
       const ev = pick(RACE_EVENTS);
@@ -2033,8 +2041,12 @@ function raceStep() {
     if (now !== lane.leg) {
       lane.leg = now;
       const nl = (r.legs || [])[now];
-      if (nl && !note && nl.good === fam) note = `${nameOf(m)} が ${nl.name} に入った(得意)`;
-      else if (nl && !note && nl.bad === fam) note = `${nameOf(m)} が ${nl.name} に入った(苦手)`;
+      if (nl && !note) {
+        const plus = (nl.good === fam ? 1 : 0) + (up && nl.ng === up ? 1 : 0);
+        const minus = (nl.bad === fam ? 1 : 0) + (up && nl.nb === up ? 1 : 0);
+        if (plus > minus) note = `${nameOf(m)} が ${nl.name} に入った(${plus > 1 ? '大得意' : '得意'})`;
+        else if (minus > plus) note = `${nameOf(m)} が ${nl.name} に入った(${minus > 1 ? '大の苦手' : '苦手'})`;
+      }
     }
     if (lane.x >= RACE.goal) reached.push({ lane, m });
   }
@@ -2073,9 +2085,10 @@ function raceView() {
     r.legs.forEach((lg, i) => {
       const c = el('div', 'leg');
       c.style.setProperty('--lc', lg.c);
+      const lab = (k) => STATS.find(st => st.key === k).label;
       c.appendChild(el('span', 'ln', lg.name));
-      c.appendChild(el('span', 'lg', FAMILIES[lg.good].name + '↑'));
-      c.appendChild(el('span', 'lb', FAMILIES[lg.bad].name + '↓'));
+      c.appendChild(el('span', 'lg', FAMILIES[lg.good].name + '↑ ' + lab(lg.ng) + '↑'));
+      c.appendChild(el('span', 'lb', FAMILIES[lg.bad].name + '↓ ' + lab(lg.nb) + '↓'));
       legend.appendChild(c);
     });
     panel.appendChild(legend);

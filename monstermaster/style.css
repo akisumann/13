@@ -983,6 +983,6 @@ button:focus-visible, .mon:focus-visible {
   line-height: 1.35;
 }
 .leg .ln { font-size: 11px; font-weight: 700; color: var(--text); }
-.leg .lg { color: #6bd39a; font-family: var(--mono); }
-.leg .lb { color: var(--danger); font-family: var(--mono); }
+.leg .lg { color: #6bd39a; font-size: 9.5px; }
+.leg .lb { color: var(--danger); font-size: 9.5px; }
 .track .lane { background-image: linear-gradient(90deg, var(--legbg)); }
