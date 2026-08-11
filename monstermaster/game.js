@@ -112,6 +112,56 @@ for (const [id, sk] of Object.entries(SKILLS)) {
 // 配合で親からスキルを受け継ぐ個数の割合
 const SKILL_INHERIT = [0.20, 0.40, 0.40]; // 0個 / 1個 / 2個
 
+// =====================================================================
+// 性格
+//
+// 同じ種でも個体で差が出るようにする。1つ得意で1つ苦手、振れ幅は ±12%。
+//
+// 全体では釣り合うように組んである。7つのステータスそれぞれが
+// 「得意」に2回、「苦手」に2回ずつ現れるので、性格を平均すると素の値に
+// 戻る。野生も大会の相手も同じように性格を持つので、難度は動かない。
+// =====================================================================
+
+// つまみ。COMBAT や CUP と同じく、あとから数値を振って測れるようにしてある。
+// 振れ幅は数値探索で決めた。同じ種どうしで性格だけを変えて総当たりすると、
+// 12%では 最強71% 〜 最弱25% と、性格が種より効いてしまう。6%なら 61%〜33% で、
+// 当たりを狙う意味はありつつ、外れを引いても使い物になる。
+const NATURE = {
+  swing:  0.06, // 得意 +6% / 苦手 −6%
+  mutate: 0.20, // 配合でどちらの親でもない性格が出る確率
+};
+
+const NATURES = [
+  // 得意の1つ隣が苦手
+  { id: 'zubutoi',   name: 'ずぶとい',   up: 'hp',  down: 'mp',  line: '構わず突っ込んだ' },
+  { id: 'shinchou',  name: 'しんちょう', up: 'mp',  down: 'atk', line: '力を溜めてから放った' },
+  { id: 'mukoumizu', name: 'むこうみず', up: 'atk', down: 'def', line: '待たずに飛びかかった' },
+  { id: 'ganko',     name: 'がんこ',     up: 'def', down: 'int', line: '動かずに受けてから打った' },
+  { id: 'reisei',    name: 'れいせい',   up: 'int', down: 'spd', line: '先を読んで差し込んだ' },
+  { id: 'sekkachi',  name: 'せっかち',   up: 'spd', down: 'dex', line: '誰より早く仕掛けた' },
+  { id: 'kiyou',     name: 'きよう',     up: 'dex', down: 'hp',  line: '狙いすまして当てた' },
+  // 得意の3つ隣が苦手
+  { id: 'nonki',     name: 'のんき',     up: 'hp',  down: 'def', line: 'のっそりと踏み込んだ' },
+  { id: 'yumemi',    name: 'ゆめみがち', up: 'mp',  down: 'int', line: 'ぼんやりしたまま振った' },
+  { id: 'chikara',   name: 'ちからづく', up: 'atk', down: 'spd', line: '大振りに叩きつけた' },
+  { id: 'zunguri',   name: 'ずんぐり',   up: 'def', down: 'dex', line: '体ごとぶつかった' },
+  { id: 'rikou',     name: 'りこう',     up: 'int', down: 'hp',  line: '間合いを測って打った' },
+  { id: 'sekaseka',  name: 'せかせか',   up: 'spd', down: 'mp',  line: '休まずに手を出した' },
+  { id: 'komayaka',  name: 'こまやか',   up: 'dex', down: 'atk', line: '細かく刻んで当てた' },
+  // 補正なし
+  { id: 'massugu',   name: 'まっすぐ',   up: null,  down: null,  line: 'まっすぐ打ち込んだ' },
+];
+
+const NATURE_BY_ID = NATURES.reduce((o, n) => (o[n.id] = n, o), {});
+function natureOf(m) { return NATURE_BY_ID[m.nature] || NATURE_BY_ID.massugu; }
+function randomNature() { return pick(NATURES).id; }
+
+// 配合では親のどちらかを継ぐ。ときどきどちらでもないものが出る。
+function inheritNature(a, b) {
+  if (Math.random() < NATURE.mutate) return randomNature();
+  return (Math.random() < 0.5 ? a : b).nature || randomNature();
+}
+
 // 4つめの文字列が成長係数(hp mp atk def int spd dex の順)。
 // 5つめが「種族が本来よく持つスキル」3つ。配合で親から何も受け継がなかったとき、
 // および野生・たまごの個体はここから1つ選ばれる。
@@ -298,6 +348,7 @@ function makeMonster(speciesId, opts) {
     gene: o.gene || 0,
     // 指定がなければ、その種族がよく持つスキルを1つ覚えて生まれる
     skills: o.skills || [pick(sp.innate)],
+    nature: o.nature || randomNature(),
     // ---- 系譜 ----
     name: o.name || null,        // つけた名前。無ければ種の名前で呼ぶ
     gen: o.gen || 1,             // 何代目か。配合するたびに1つ増える
@@ -457,6 +508,7 @@ function fuse(a, b, use) {
   return makeMonster(sp.id, {
     gene: fuseGene(a, b),
     skills: inheritSkills(a, b, sp, use),
+    nature: inheritNature(a, b),
     // 系譜。代は「親の深いほう + 1」で数える。
     gen: Math.max(a.gen || 1, b.gen || 1) + 1,
     parents: [{ name: nameOf(a), sp: a.sp }, { name: nameOf(b), sp: b.sp }],
@@ -493,12 +545,16 @@ function previewFusion(a, b, use) {
 // 戦闘用の状態を作る。ステータス強化系のスキルはここで数値に織り込む。
 function combatant(m) {
   const s = statsOf(m);
+  // 性格。1つ得意で1つ苦手。
+  const nat = natureOf(m);
+  if (nat.up) s[nat.up] = Math.round(s[nat.up] * (1 + NATURE.swing));
+  if (nat.down) s[nat.down] = Math.round(s[nat.down] * (1 - NATURE.swing));
   const sk = activeSkills(m);
   for (const [id, lv] of Object.entries(sk)) {
     const def = SKILLS[id];
     if (def.stat) s[def.stat] = Math.round(s[def.stat] * (1 + def.per * lv));
   }
-  return { name: spOf(m).name, ...s, maxHp: s.hp, maxMp: s.mp, sk, poison: 0 };
+  return { name: nameOf(m), line: nat.line, ...s, maxHp: s.hp, maxMp: s.mp, sk, poison: 0 };
 }
 
 // 1回の攻撃。7ステータスとスキルがすべて常時効果として噛み合う。
@@ -561,7 +617,7 @@ function strike(atk, dfn, log) {
     note += ' [毒]';
   }
 
-  log.push(`${atk.name} の攻撃 → ${dmg} ダメージ${note}(${dfn.name} 残り ${Math.max(0, dfn.hp)})`);
+  log.push(`${atk.name} は ${atk.line} → ${dmg} ダメージ${note}(${dfn.name} 残り ${Math.max(0, dfn.hp)})`);
 }
 
 // モンスターでも、すでに組み立てた戦闘用の駒でも受け取る。
@@ -658,7 +714,8 @@ function explore(party, area, canCapture) {
       if (canCapture === false) out.missedCapture = true;
       else {
         const w = pick(wilds);
-        out.captured = makeMonster(w.sp, { level: 1, gene: w.gene, skills: w.skills.slice(), origin: 'wild' });
+        out.captured = makeMonster(w.sp, {
+          level: 1, gene: w.gene, skills: w.skills.slice(), nature: w.nature, origin: 'wild' });
       }
     }
   } else {
@@ -916,6 +973,8 @@ function load() {
       if (!m.gen) m.gen = 1;
       if (m.parents === undefined) m.parents = null;
       if (!m.origin) m.origin = 'wild';
+      // 性格の導入前のセーブデータ。持っていなければここで1つ決める。
+      if (!NATURE_BY_ID[m.nature]) m.nature = randomNature();
     }
     return {
       gold: d.gold || 0,
@@ -1291,6 +1350,14 @@ function monRow(m, opts) {
   main.appendChild(el('div', 'mon-sub',
     `Lv.${m.level}${m.level >= cap ? '(最大)' : ''} ・ 遺伝 +${m.gene}` +
     ((m.gen || 1) > 1 ? ` ・ ${m.gen}代目` : '')));
+  const nat = natureOf(m);
+  const nl = el('div', 'mon-nature');
+  nl.appendChild(el('span', 'nat', `〈${nat.name}〉`));
+  if (nat.up) {
+    nl.appendChild(el('span', 'up', `${STATS.find(s => s.key === nat.up).label}↑`));
+    nl.appendChild(el('span', 'down', `${STATS.find(s => s.key === nat.down).label}↓`));
+  }
+  main.appendChild(nl);
   const sk = el('div', 'mon-skills');
   for (const s of skillLevels(m)) {
     sk.appendChild(el('span', 'chip-skill' + (s.level ? '' : ' is-dormant'),
@@ -1472,6 +1539,14 @@ function viewRanch(view) {
       `${m.name ? spOf(m).name + ' ・ ' : ''}${famOf(m).name}系 ・ ${rankLabel(spOf(m).rank)}`));
     d.appendChild(dh);
     d.appendChild(el('p', 'lore', spOf(m).flavor));
+    {
+      const nat = natureOf(m);
+      d.appendChild(el('p', 'hint',
+        `性格は〈${nat.name}〉。` + (nat.up
+          ? `${STATS.find(s => s.key === nat.up).label}が ${Math.round(NATURE.swing * 100)}% 高く、` +
+            `${STATS.find(s => s.key === nat.down).label}が同じだけ低い。下のステータスにはもう反映されている。`
+          : '得意も苦手も無い。')));
+    }
     d.appendChild(statBlock(m));
 
     // スキル(合計値はレベルの半分。複数持つとその分1つあたりが下がる)
@@ -1628,6 +1703,9 @@ function viewFuse(view) {
     txt.appendChild(el('div', 't3',
       (use.keishou ? 'スキルを親から必ず2個受け継ぐ' : 'スキルは親から0〜2個ランダムに受け継ぐ') +
       `(${picked.map(p => p.skills.map(id => SKILLS[id].name).join('・')).join(' / ')})`));
+    txt.appendChild(el('div', 't3',
+      `性格は親のどちらかを継ぐ(${picked.map(p => natureOf(p).name).join(' / ')})。` +
+      `${Math.round(NATURE.mutate * 100)}%でどちらでもないものが出る`));
   } else if (born) {
     // 配合直後。タブを移動しない代わりに、生まれた子をここで見せる。
     res.appendChild(emblem(born, 'lg'));
@@ -1636,7 +1714,7 @@ function viewFuse(view) {
       `${famOf(born).name}系 ・ 遺伝 +${born.gene}` + (UI.bornNew ? ' ・ 新種発見!' : '')));
     txt.appendChild(growthLine(spOf(born)));
     txt.appendChild(el('div', 't3',
-      `スキル ${born.skills.map(id => SKILLS[id].name).join('・')}`));
+      `スキル ${born.skills.map(id => SKILLS[id].name).join('・')} ・ 〈${natureOf(born).name}〉`));
   } else {
     const ph = el('div', 'emblem lg', '?');
     ph.style.setProperty('--fc', '#7b86a8');

@@ -747,3 +747,16 @@ button:focus-visible, .mon:focus-visible {
   color: var(--muted);
 }
 .catalyst.is-on .cat-mark { color: var(--accent); }
+
+/* 性格 */
+.mon-nature {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  margin-top: 2px;
+}
+.mon-nature .nat { color: var(--text); font-weight: 600; }
+.mon-nature .up { color: #6bd39a; font-family: var(--mono); }
+.mon-nature .down { color: var(--danger); font-family: var(--mono); }
