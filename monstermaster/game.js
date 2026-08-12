@@ -319,50 +319,50 @@ const TERRAIN_MAX = 4;
 
 const TERRAINS = {
   grassland: { name: '草はら',   price: 600,  likes: 'grass', c: '#2f6b3c', c2: '#3f8a4c', top: '#5fd07a',
-    acts: ['で 寝転がった', 'の草を食んでいる', 'に 潜りこんだ'] },
+    snd: 'rustle', acts: ['で 寝転がった', 'の草を食んでいる', 'に 潜りこんだ'] },
   pond:      { name: '水たまり', price: 850,  likes: 'water', c: '#1d4a72', c2: '#2a6396', top: '#4aa8ff',
-    acts: ['に 浸かっている', 'の水を跳ねさせた', 'を のぞきこんだ'], wet: true },
+    snd: 'splash', acts: ['に 浸かっている', 'の水を跳ねさせた', 'を のぞきこんだ'], wet: true },
   rockface:  { name: '岩肌',     price: 1000, likes: 'rock',  c: '#4a4437', c2: '#5e5644', top: '#d0a24a',
-    acts: ['に よじ登った', 'の上で日を浴びている', 'を 削っている'], high: true },
+    snd: 'pebble', acts: ['に よじ登った', 'の上で日を浴びている', 'を 削っている'], high: true },
   ember:     { name: '焚き跡',   price: 1200, likes: 'fire',  c: '#4a2a24', c2: '#63372c', top: '#ff6b4a',
-    acts: ['の灰をかき回した', 'で 暖まっている', 'に 火を入れ直した'] },
+    snd: 'crackl', acts: ['の灰をかき回した', 'で 暖まっている', 'に 火を入れ直した'] },
   ledge:     { name: '段差',     price: 1500, likes: 'wind',  c: '#3a4256', c2: '#4a546e', top: '#7ee0d0',
-    acts: ['から 飛び降りた', 'の上に立っている', 'を 何度も跳んでいる'], high: true },
+    snd: 'hop', acts: ['から 飛び降りた', 'の上に立っている', 'を 何度も跳んでいる'], high: true },
   cave:      { name: '洞窟',     price: 2000, likes: 'dark',  c: '#161a26', c2: '#1e2432', top: '#a76bff',
-    acts: ['に 入っていった', 'の奥から見ている', 'の入口で丸くなった'], hide: true },
+    snd: 'drip', acts: ['に 入っていった', 'の奥から見ている', 'の入口で丸くなった'], hide: true },
 };
 
 // 器具。7×5のドット絵と、寄ってくる系統・することが決まっている。
 const FIXTURES = {
   rug:    { name: '敷物',       price: 300,  likes: null,
-            acts: ['の上で寝そべった', 'で 丸くなった', 'の端をくわえている'],
+            snd: 'rustle', acts: ['の上で寝そべった', 'で 丸くなった', 'の端をくわえている'],
             art: ['.......', '.#####.', '.#ooo#.', '.#####.', '.......'], c: '#b06a5a', a: '#e0a08a' },
   ball:   { name: 'まり',       price: 380,  likes: 'wind',
-            acts: ['を 転がしている', 'を 追いかけた', 'に 飛びついた'],
+            snd: 'toy', acts: ['を 転がしている', 'を 追いかけた', 'に 飛びついた'],
             art: ['..###..', '.#ooo#.', '#oo#oo#', '.#ooo#.', '..###..'], c: '#e8c05a', a: '#fff3c4' },
   feeder: { name: 'えさ箱',     price: 450,  likes: null,
-            acts: ['を つついている', 'で 食べている', 'に 顔を突っ込んだ'],
+            snd: 'chew', acts: ['を つついている', 'で 食べている', 'に 顔を突っ込んだ'],
             art: ['.......', '#.....#', '#ooooo#', '#######', '.#...#.'], c: '#8a6a4a', a: '#d8b06a' },
   trough: { name: '水おけ',     price: 520,  likes: 'water',
-            acts: ['で 水をのんでいる', 'に 足をつけた', 'を のぞきこんでいる'],
+            snd: 'splash', acts: ['で 水をのんでいる', 'に 足をつけた', 'を のぞきこんでいる'],
             art: ['.......', '#.....#', '#ooooo#', '#ooooo#', '.#####.'], c: '#6a7a9a', a: '#4aa8ff' },
   log:    { name: '丸太',       price: 560,  likes: 'grass',
-            acts: ['に よじ登った', 'の上で寝ている', 'を かじっている'],
+            snd: 'wood', acts: ['に よじ登った', 'の上で寝ている', 'を かじっている'],
             art: ['.......', '#######', '#oo#oo#', '#######', '.......'], c: '#7a5a3a', a: '#a88050' },
   bush:   { name: '茂み',       price: 620,  likes: 'dark',
-            acts: ['に 隠れた', 'から 顔だけ出している', 'の中で丸くなった'],
+            snd: 'rustle', acts: ['に 隠れた', 'から 顔だけ出している', 'の中で丸くなった'],
             art: ['..o.o..', '.ooooo.', 'ooooooo', '.ooooo.', '..#.#..'], c: '#3a5a3a', a: '#5fd07a' },
   perch:  { name: 'とまり木',   price: 700,  likes: 'wind',
-            acts: ['に とまった', 'から 見下ろしている', 'の上で羽を伸ばした'],
+            snd: 'wood', acts: ['に とまった', 'から 見下ろしている', 'の上で羽を伸ばした'],
             art: ['#######', '...#...', '...#...', '..###..', '.#####.'], c: '#8a7a5a', a: '#c8b070' },
   hearth: { name: 'あたたか石', price: 820,  likes: 'fire',
-            acts: ['の上で丸くなった', 'で 温まっている', 'に 寄りかかった'],
+            snd: 'crackl', acts: ['の上で丸くなった', 'で 温まっている', 'に 寄りかかった'],
             art: ['..###..', '.#ooo#.', '#ooooo#', '#ooooo#', '#######'], c: '#8a4a3a', a: '#ff6b4a' },
   cairn:  { name: '積み石',     price: 900,  likes: 'rock',
-            acts: ['を 崩した', 'を 積み直している', 'の影に入った'],
+            snd: 'pebble', acts: ['を 崩した', 'を 積み直している', 'の影に入った'],
             art: ['..###..', '.#####.', '..###..', '.#####.', '#######'], c: '#7a7a86', a: '#d0a24a' },
   font:   { name: '灯明',       price: 1100, likes: 'light',
-            acts: ['の火を見ている', 'に 照らされている', 'のまわりを回った'],
+            snd: 'chime', acts: ['の火を見ている', 'に 照らされている', 'のまわりを回った'],
             art: ['...o...', '..ooo..', '...#...', '..###..', '.#####.'], c: '#9a8a6a', a: '#ffd95c' },
 };
 const FIXTURE_MAX = 6;
@@ -1020,7 +1020,7 @@ let UI = {
   tab: 'ranch', picks: [], area: 1, party: [], result: null, open: null,
   cup: 1, cupTeam: [], cupResult: null,
   eggFamily: null, use: {},
-  pen: {}, penNodes: null, penCaption: null, penTerrain: null, penGroundKey: null, penGroundURL: null,
+  pen: {}, penNodes: null, penCaption: null, penGap: 0, penTerrain: null, penGroundKey: null, penGroundURL: null,
   race: null, raceNodes: null, raceNote: null,
   show: null, showNodes: null, showNote: null,
   born: null, bornNew: false, // 直前に配合で生まれた子(配合タブに留まったまま結果を見せる)
@@ -1495,9 +1495,9 @@ function setAction(node) {
 
 let toastTimer = null;
 // 音。作り方は sound.js にある。ここが決めるのは「いつ鳴らすか」だけ。
-function sfx(name) {
+function sfx(name, opt) {
   if (typeof Sfx === 'undefined' || !S || !S.sound) return null;
-  return Sfx.play(name);
+  return Sfx.play(name, opt);
 }
 
 // 記録の種類から音を選ぶ。戦いの再生はこの1本で鳴る。
@@ -1641,7 +1641,15 @@ const PEN = {
   crowd: 3,                 // これだけ集まっている先には、もう寄っていかない
   stay: 4,                  // 着いてから離れるまでの歩数
   bored: [7, 16],           // 離れたあと、次に用ができるまでの歩数
+  // 物音。一言はほぼ毎歩出るので、そのまま鳴らすと1秒おきに音がして
+  // うるさい。鳴らすのは一部だけにして、前の音から少し間を空ける。
+  sfx: 0.22,                // 一言が出たとき、音まで鳴らす割合
+  sfxGap: 2,                // 前の音から空ける歩数
 };
+
+// 物音の高さ。軽い性格ほど高く、重い性格ほど低く鳴る。
+// 同じ器具でも鳴らす子で音が変わるので、誰が動いたか何となく分かる。
+const PEN_PITCH = { spd: 1.20, dex: 1.14, int: 1.06, mp: 1.00, atk: 0.94, hp: 0.86, def: 0.82, null: 1.00 };
 
 // 性格ごとの歩き方。落ち着きの無さと歩幅だけ変える。
 function penStyle(m) {
@@ -1891,7 +1899,7 @@ function penStep() {
     node.classList.toggle('on-hide', !!(t && t.hide));
     node.classList.toggle('on-wet', !!(t && t.wet));
     if (t && !said.length && Math.random() < PEN.play * 0.8) {
-      said.push(`${nameOf(m)} が ${t.name} ${pick(t.acts)}`);
+      said.push({ m, snd: t.snd, text: `${nameOf(m)} が ${t.name} ${pick(t.acts)}` });
     }
   }
 
@@ -1902,7 +1910,8 @@ function penStep() {
       const t = fx[id];
       if (Math.abs(p.x - t.x) > PEN.near || Math.abs(p.y - t.y) > PEN.near) continue;
       if (Math.random() >= PEN.play) continue;
-      said.push(`${nameOf(m)} が ${FIXTURES[id].name} ${pick(FIXTURES[id].acts)}`);
+      said.push({ m, snd: FIXTURES[id].snd,
+        text: `${nameOf(m)} が ${FIXTURES[id].name} ${pick(FIXTURES[id].acts)}` });
       break;
     }
   }
@@ -1914,15 +1923,29 @@ function penStep() {
       if (Math.abs(a.p.x - b.p.x) > PEN.near || Math.abs(a.p.y - b.p.y) > PEN.near) continue;
       if (Math.random() >= PEN.chat) continue;
       const lines = PEN_MEET[natureOf(a.m).up] || PEN_MEET.null;
-      said.push(`${nameOf(a.m)} が ${nameOf(b.m)} ${pick(lines)}`);
+      said.push({ m: a.m, snd: 'chirp', text: `${nameOf(a.m)} が ${nameOf(b.m)} ${pick(lines)}` });
       break;
     }
   }
   if (!said.length && spots.length && Math.random() < 0.28) {
     const one = pick(spots);
-    said.push(`${nameOf(one.m)} が ${pick(PEN_ALONE)}`);
+    // うずくまっているならひとりごとではなく寝息
+    said.push({ m: one.m, snd: one.p.nap ? 'snore' : 'hum',
+      text: `${nameOf(one.m)} が ${pick(PEN_ALONE)}` });
   }
-  if (said.length && UI.penCaption) UI.penCaption.textContent = said[0];
+  if (said.length && UI.penCaption) UI.penCaption.textContent = said[0].text;
+  penSfx(said[0]);
+}
+
+// にわの物音。一言が出るたびに鳴らすとうるさいので、間引いて鳴らす。
+function penSfx(one) {
+  if (UI.penGap > 0) UI.penGap--;
+  if (!one || !one.snd || UI.penGap > 0) return;
+  if (Math.random() >= PEN.sfx) return;
+  UI.penGap = PEN.sfxGap;
+  // 同じ音が続いても機械的に聞こえないよう、高さを少しだけ散らす
+  const base = PEN_PITCH[natureOf(one.m).up] || PEN_PITCH.null;
+  sfx(one.snd, { pitch: base * (0.96 + Math.random() * 0.08) });
 }
 
 function applySpot(node, p) {
