@@ -853,6 +853,32 @@ button:focus-visible, .mon:focus-visible {
 .pen-mon { transform: translate(-50%, calc(-50% + var(--lift, 0px))) scaleX(var(--flip, 1)); }
 .pen-mon.is-nap { transform: translate(-50%, calc(-50% + var(--lift, 0px))) scaleX(var(--flip, 1)) scaleY(0.82); }
 .pen-mon.on-hide { opacity: 0.45; }
+
+/* 頭の上の気持ち。出るときだけふわっと浮く。 */
+.emo {
+  position: absolute;
+  left: 50%; top: -4px;
+  /* 親が左右反転するので、同じだけ掛け戻す(掛けないと字が裏返る) */
+  transform: translate(-50%, 0) scale(0.6) scaleX(var(--flip, 1));
+  opacity: 0;
+  font-size: 10px; font-style: normal; line-height: 1;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line-hi);
+  border-radius: 999px;
+  padding: 1px 5px;
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity .25s ease, transform .25s ease;
+}
+.emo.is-on {
+  opacity: 1;
+  transform: translate(-50%, -10px) scale(1) scaleX(var(--flip, 1));
+}
+/* 仲良くしているのは遠目にも分かるように色をつける */
+.emo.is-love { color: #ff8fb0; border-color: #ff8fb0; }
+.emo.is-nap  { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .emo { transition: none; } }
 .pen-mon.on-wet .emblem { box-shadow: 0 3px 0 -1px color-mix(in srgb, #4aa8ff 55%, transparent); }
 
 /* ===== かけっこ ===== */

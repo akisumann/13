@@ -1020,7 +1020,7 @@ let UI = {
   tab: 'ranch', picks: [], area: 1, party: [], result: null, open: null,
   cup: 1, cupTeam: [], cupResult: null,
   eggFamily: null, use: {},
-  pen: {}, penNodes: null, penCaption: null, penGap: 0,
+  pen: {}, penNodes: null, penCaption: null, penGap: 0, penEmo: null,
   playId: 'race', play: null, playField: null, playNodes: null, playNote: null, playAcc: 0, penTerrain: null, penGroundKey: null, penGroundURL: null,
   show: null, showNodes: null, showNote: null,
   born: null, bornNew: false, // 直前に配合で生まれた子(配合タブに留まったまま結果を見せる)
@@ -1645,7 +1645,52 @@ const PEN = {
   // うるさい。鳴らすのは一部だけにして、前の音から少し間を空ける。
   sfx: 0.22,                // 一言が出たとき、音まで鳴らす割合
   sfxGap: 2,                // 前の音から空ける歩数
+  mood: [26, 60],           // 気分が変わるまでの歩数
+  emo: 2,                   // 気持ちの絵が出ている歩数
+  emoP: 0.05,               // 何もなくても気分が顔に出る割合。長さ×割合が
+                            // そのまま「頭の上が埋まっている率」になるので低く。
+  emoNap: 0.10,             // 寝ているあいだに寝息が出る割合。出しっぱなしに
+                            // すると、寝ている子の頭の上が常に埋まってうるさい。
+  moodBias: 3,              // 性格に合う気分の出やすさ(何倍か)
 };
+
+// 気分。にわにいるあいだ、ゆっくり移り変わる。
+// 強さにも遊びにも一切関わらない。動き方と、頭の上に出る印だけが変わる。
+// 性格に合う気分は出やすい(のんきはねむく、せっかちはわくわくしやすい)。
+const MOODS = [
+  { id: 'gokigen', name: 'ごきげん',   mark: '♪',   likes: ['atk', 'dex'],
+    move: 1.15, nap: 0.8 },
+  { id: 'wakuwaku', name: 'わくわく',  mark: '!',   likes: ['spd', 'dex'],
+    move: 1.40, nap: 0.4, seek: 1.3 },
+  { id: 'amae',    name: 'あまえたい', mark: '♡',   likes: ['mp', 'hp'],
+    move: 1.00, nap: 0.7, cling: true },
+  { id: 'nemui',   name: 'ねむい',     mark: 'zzz', likes: ['hp', 'def'],
+    move: 0.55, nap: 2.4 },
+  { id: 'bonyari', name: 'ぼんやり',   mark: '…',   likes: ['int', 'mp'],
+    move: 0.75, nap: 1.3 },
+];
+const MOOD_BY_ID = MOODS.reduce((o, m) => (o[m.id] = m, o), {});
+
+// 気分をひとつ引く。性格に合うものは出やすいが、どれも必ず出る目がある。
+function drawMood(m) {
+  const up = natureOf(m).up;
+  const bag = [];
+  for (const mood of MOODS) {
+    const n = mood.likes.includes(up) ? PEN.moodBias : 1;
+    for (let i = 0; i < n; i++) bag.push(mood.id);
+  }
+  return pick(bag);
+}
+
+const moodOf = (p) => MOOD_BY_ID[p.mood] || MOODS[0];
+
+// 頭の上に気持ちを出す。すでに何か出ていれば、そのまま(上書きしない)。
+function emote(p, mark, force) {
+  if (!mark) return;
+  if (!force && p.emoT > 0) return;
+  p.emo = mark;
+  p.emoT = PEN.emo;
+}
 
 // 物音の高さ。軽い性格ほど高く、重い性格ほど低く鳴る。
 // 同じ器具でも鳴らす子で音が変わるので、誰が動いたか何となく分かる。
@@ -1809,6 +1854,7 @@ function penSpot(uid) {
     UI.pen[uid] = {
       x: ri(PEN.x[0], PEN.x[1]), y: ri(PEN.y[0], PEN.y[1]),
       flip: Math.random() < 0.5, nap: false,
+      mood: null, moodT: 0, emo: null, emoT: 0,
     };
   }
   return UI.pen[uid];
@@ -1840,9 +1886,28 @@ function penStep() {
   for (const m of S.monsters) {
     const node = UI.penNodes[m.uid];
     if (!node) continue;
-    const st = penStyle(m), p = penSpot(m.uid);
+    const p = penSpot(m.uid);
 
-    if (Math.random() < PEN.nap) p.nap = !p.nap;
+    // 気分。しばらく続いてから、また引き直す。
+    if (!p.mood || --p.moodT <= 0) {
+      p.mood = drawMood(m);
+      p.moodT = ri(PEN.mood[0], PEN.mood[1]);
+    }
+    const mood = moodOf(p);
+    // 性格の動き方に、いまの気分ぶんの色をつける
+    const base = penStyle(m);
+    const st = { step: Math.max(3, Math.round(base.step * mood.move)),
+                 still: clamp(base.still / mood.move, 0.02, 0.7) };
+
+    if (p.emoT > 0 && --p.emoT <= 0) p.emo = null;
+    if (Math.random() < PEN.nap * mood.nap) p.nap = !p.nap;
+    // 寝ているあいだはときどき寝息。起きたら消える。
+    if (p.nap) {
+      // 眠ったら、それまでの印は引っ込める。頭の上は寝息だけにしておく。
+      if (p.emo && p.emo !== 'zzz') { p.emo = null; p.emoT = 0; }
+      if (Math.random() < PEN.emoNap) emote(p, 'zzz');
+    } else if (p.emo === 'zzz') { p.emo = null; p.emoT = 0; }
+    else if (Math.random() < PEN.emoP) emote(p, mood.mark);
 
     // ---- 用のあるなし ----
     // 歩いたかどうかに関わらず毎回進める。動きの中に入れてしまうと、
@@ -1861,7 +1926,7 @@ function penStep() {
         if (p.stay > PEN.stay) { drop(); p.bored = ri(PEN.bored[0], PEN.bored[1]); }
       } else p.stay = 0;
     }
-    if (!p.want && !p.bored && Math.random() < PEN.seek) {
+    if (!p.want && !p.bored && Math.random() < PEN.seek * (mood.seek || 1)) {
       const ids = Object.keys(targets).filter(id => crowd[id] < PEN.crowd);
       if (ids.length) {
         const mine = ids.filter(id => (FIXTURES[id] || TERRAINS[id]).likes === spOf(m).family);
@@ -1870,10 +1935,32 @@ function penStep() {
       }
     }
 
+    // あまえたい気分の子は、器具ではなくいちばん近い仲間に寄っていく。
+    // 相手は動くので追いつけないこともある。それでいい。
+    let friend = null;
+    if (mood.cling && !p.want && !p.nap) {
+      // 混んでいる先にいる仲間は追わない。追うと、そこがさらにダマになる。
+      const packed = Object.entries(targets)
+        .filter(([id]) => crowd[id] >= PEN.crowd).map(([, t]) => t);
+      let best = 1e9;
+      for (const q of S.monsters) {
+        if (q.uid === m.uid) continue;
+        const o = penSpot(q.uid);
+        if (packed.some(t => isNear(o, t))) continue;
+        const d = Math.abs(o.x - p.x) + Math.abs(o.y - p.y);
+        if (d < best) { best = d; friend = o; }
+      }
+      // 追いついた。ときどきハートを出す。毎歩出すと出っぱなしになる。
+      if (friend && best <= PEN.near) {
+        if (Math.random() < PEN.emoP * 2) emote(p, '♡');
+        friend = null;
+      }
+    }
+
     if (!p.nap && Math.random() >= st.still) {
       let dx, dy;
-      if (p.want) {
-        const t = targets[p.want];
+      if (p.want || friend) {
+        const t = friend || targets[p.want];
         dx = clamp(Math.round(t.x - p.x), -st.step, st.step);
         dy = clamp(Math.round(t.y - p.y), -st.step, st.step);
         if (!dx && !dy) { dx = ri(-2, 2); dy = ri(-2, 2); }
@@ -1886,7 +1973,7 @@ function penStep() {
       p.x = nx;
       p.y = clamp(p.y + dy, PEN.y[0], PEN.y[1]);
     }
-    applySpot(node, p);
+    applySpot(node, p, m.uid);
     spots.push({ m, p });
   }
 
@@ -1898,7 +1985,8 @@ function penStep() {
     node.classList.toggle('on-high', !!(t && t.high));
     node.classList.toggle('on-hide', !!(t && t.hide));
     node.classList.toggle('on-wet', !!(t && t.wet));
-    if (t && !said.length && Math.random() < PEN.play * 0.8) {
+    if (t && !said.length && !p.nap && Math.random() < PEN.play * 0.8) {
+      emote(p, moodOf(p).mark);
       said.push({ m, snd: t.snd, text: `${nameOf(m)} が ${t.name} ${pick(t.acts)}` });
     }
   }
@@ -1906,10 +1994,12 @@ function penStep() {
   // 器具のそばにいる者は、その器具で遊ぶ
   for (const { m, p } of spots) {
     if (said.length) break;
+    if (p.nap) continue;   // 寝ている子は遊ばない
     for (const id of fxIds) {
       const t = fx[id];
       if (Math.abs(p.x - t.x) > PEN.near || Math.abs(p.y - t.y) > PEN.near) continue;
       if (Math.random() >= PEN.play) continue;
+      emote(p, '♪');
       said.push({ m, snd: FIXTURES[id].snd,
         text: `${nameOf(m)} が ${FIXTURES[id].name} ${pick(FIXTURES[id].acts)}` });
       break;
@@ -1920,8 +2010,13 @@ function penStep() {
   for (let i = 0; i < spots.length && said.length < 1; i++) {
     for (let j = i + 1; j < spots.length; j++) {
       const a = spots[i], b = spots[j];
+      if (a.p.nap) break;   // 絡みにいくのは起きているほう
       if (Math.abs(a.p.x - b.p.x) > PEN.near || Math.abs(a.p.y - b.p.y) > PEN.near) continue;
       if (Math.random() >= PEN.chat) continue;
+      // 絡んだ2匹に印を出す。仲良くしているのが見て分かるように。
+      // 寝ているほうには出さない(頭の上は寝息のままにしておく)。
+      emote(a.p, '♡', true);
+      if (!b.p.nap) emote(b.p, '♡', true);
       const lines = PEN_MEET[natureOf(a.m).up] || PEN_MEET.null;
       said.push({ m: a.m, snd: 'chirp', text: `${nameOf(a.m)} が ${nameOf(b.m)} ${pick(lines)}` });
       break;
@@ -1930,6 +2025,7 @@ function penStep() {
   if (!said.length && spots.length && Math.random() < 0.28) {
     const one = pick(spots);
     // うずくまっているならひとりごとではなく寝息
+    emote(one.p, one.p.nap ? 'zzz' : moodOf(one.p).mark);
     said.push({ m: one.m, snd: one.p.nap ? 'snore' : 'hum',
       text: `${nameOf(one.m)} が ${pick(PEN_ALONE)}` });
   }
@@ -1948,11 +2044,19 @@ function penSfx(one) {
   sfx(one.snd, { pitch: base * (0.96 + Math.random() * 0.08) });
 }
 
-function applySpot(node, p) {
+function applySpot(node, p, uid) {
   node.style.setProperty('--px', p.x + '%');
   node.style.setProperty('--py', p.y + '%');
   node.style.setProperty('--flip', p.flip ? '-1' : '1');
   node.classList.toggle('is-nap', !!p.nap);
+  // 頭の上の気持ち。中身が変わったときだけ書き換える(毎歩いじると跳ね続ける)。
+  const e = UI.penEmo && UI.penEmo[uid];
+  if (!e) return;
+  const mark = p.emoT > 0 ? p.emo : null;
+  if (e.textContent !== (mark || '')) e.textContent = mark || '';
+  e.classList.toggle('is-on', !!mark);
+  e.classList.toggle('is-love', mark === '♡');
+  e.classList.toggle('is-nap', mark === 'zzz');
 }
 
 function penView() {
@@ -1978,11 +2082,15 @@ function penView() {
   }
 
   UI.penNodes = {};
+  UI.penEmo = {};
   for (const m of S.monsters) {
     const n = el('div', 'pen-mon');
     n.appendChild(emblem(m, 'sm'));
+    const e = el('i', 'emo');
+    n.appendChild(e);
+    UI.penEmo[m.uid] = e;
     n.title = nameOf(m);
-    applySpot(n, penSpot(m.uid));
+    applySpot(n, penSpot(m.uid), m.uid);
     UI.penNodes[m.uid] = n;
     pen.appendChild(n);
   }
@@ -2472,6 +2580,13 @@ function viewRanch(view) {
     {
       const nat = natureOf(m);
       if (m.wins) d.appendChild(el('p', 'hint', `遊びで ${m.wins} 勝。`));
+      // いまの気分。にわを見ているあいだ移り変わる、その場かぎりのもの。
+      const p = UI.pen && UI.pen[m.uid];
+      if (p && p.mood) {
+        const mood = moodOf(p);
+        d.appendChild(el('p', 'hint',
+          `いまは ${mood.mark} ${mood.name}。${p.nap ? 'にわでうずくまっている。' : ''}`));
+      }
       d.appendChild(el('p', 'hint',
         `性格は〈${nat.name}〉。` + (nat.up
           ? `${STATS.find(s => s.key === nat.up).label}が ${Math.round(NATURE.swing * 100)}% 高く、` +
