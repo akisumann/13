@@ -1048,6 +1048,7 @@ function newState() {
     // にわの敷地・地形・器具(見た目だけ)。owned は買ってある敷地。
     pen: { ground: 'grass', fixtures: [], terrain: [], owned: [] },
     watch: true,   // 探索で戦いを見せるか。連打したいときは切る。
+    sound: true,   // 音を鳴らすか
   };
 }
 
@@ -1106,6 +1107,7 @@ function load() {
         owned: (d.pen && Array.isArray(d.pen.owned)) ? d.pen.owned.filter(id => GROUNDS.some(g => g.id === id)) : [],
       },
       watch: d.watch !== false,
+      sound: d.sound !== false,
     };
   } catch (e) { return null; }
 }
@@ -1492,6 +1494,38 @@ function setAction(node) {
 }
 
 let toastTimer = null;
+// 音。作り方は sound.js にある。ここが決めるのは「いつ鳴らすか」だけ。
+function sfx(name) {
+  if (typeof Sfx === 'undefined' || !S || !S.sound) return null;
+  return Sfx.play(name);
+}
+
+// 記録の種類から音を選ぶ。戦いの再生はこの1本で鳴る。
+function eventSfx(e) {
+  if (!e) return null;
+  if (e.k === 'down') return 'down';
+  if (e.k === 'poison') return 'pois';
+  if (e.k === 'hit') return e.crit ? 'crit' : e.parry ? 'parry' : 'hit';
+  return null;
+}
+
+// 探索の結末。レベルが上がったら、勝ちの音が鳴り終わってから続ける。
+function exploreSfx(r) {
+  if (!r) return;
+  const end = r.win ? 'win' : 'lose';
+  sfx(end);
+  if (r.levelUps > 0) sfxLater('level', sfxLength(end) * 1000 + 60);
+}
+
+function sfxLength(name) {
+  return typeof Sfx === 'undefined' ? 0.4 : Sfx.lengthOf(name);
+}
+
+function sfxLater(name, ms) {
+  if (typeof setTimeout === 'undefined') return;
+  setTimeout(() => sfx(name), ms);
+}
+
 function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -1967,6 +2001,7 @@ function raceStep() {
   const { finished } = Race.step(r);
   for (const f of finished) {
     if (f.place !== 1) continue;
+    sfx('goal');
     const m = S.monsters.find(x => x.uid === f.id);
     if (m) m.wins = (m.wins || 0) + 1;
   }
@@ -2028,7 +2063,7 @@ function raceView() {
     !r ? 'かけっこをさせる' : r.over ? 'もう一度' : '走っている…');
   if (S.monsters.length < 2) { go.disabled = true; go.textContent = '2匹いないと走れない'; }
   else if (r && !r.over) go.disabled = true;
-  go.addEventListener('click', () => { if (raceStart()) render(); });
+  go.addEventListener('click', () => { if (raceStart()) { sfx('whis'); render(); } });
   panel.appendChild(go);
   return panel;
 }
@@ -2071,6 +2106,7 @@ function shopPanel() {
     b.addEventListener('click', () => {
       const r = doBuyEgg(t.rank, UI.eggFamily);
       if (!r) return;
+      sfx('egg');
       toast(`${spOf(r.monster).name} がかえった!${r.isNew ? '(図鑑に登録)' : ''}`);
       resort(); save(); render();
     });
@@ -2099,6 +2135,7 @@ function shopPanel() {
     b.addEventListener('click', () => {
       const r = doBuyItem(id);
       if (!r) return;
+      sfx('coin');
       toast(`${it.name} を買った(所持 ${r.count})`);
       save(); render();
     });
@@ -2119,6 +2156,7 @@ function shopPanel() {
     b.addEventListener('click', () => {
       const r = doBuyGround(g.id);
       if (!r) return;
+      sfx('coin');
       toast(`にわを ${g.name} にした`);
       save(); render();
     });
@@ -2228,6 +2266,7 @@ function shopPanel() {
   ex.addEventListener('click', () => {
     const r = doExpandBarn();
     if (!r) return;
+    sfx('coin');
     toast(`牧場を広げた(${r.cap}匹まで)`);
     save(); render();
   });
@@ -2241,6 +2280,19 @@ function viewRanch(view) {
   head.appendChild(el('h2', null, '牧場'));
   head.appendChild(el('span', 'note', `${S.monsters.length} / ${rosterCap()} 匹 ・ 配合 ${S.fuseCount} 回`));
   view.appendChild(head);
+
+  // 音の切り替え。戦いを見せるかどうかと同じ形で、こちらは全体に効く。
+  const snd = el('button', 'toggle' + (S.sound ? ' is-on' : ''));
+  snd.appendChild(el('span', 'tg-box', S.sound ? '■' : '□'));
+  snd.appendChild(el('span', null, '音を鳴らす'));
+  snd.appendChild(el('span', 'tg-note', S.sound ? '打撃・配合・ゴールなど' : '無音'));
+  snd.addEventListener('click', () => {
+    S.sound = !S.sound;
+    save();
+    sfx('pick');   // 入れた直後に一声鳴らして、聞こえるか分かるようにする
+    render();
+  });
+  view.appendChild(snd);
 
   view.appendChild(penView());
   view.appendChild(raceView());
@@ -2518,6 +2570,7 @@ function viewFuse(view) {
     UI.bornNew = r.isNew;
     for (const id of Object.keys(r.spent)) UI.use[id] = false; // 使い切ったので外す
     resort(); // 親2匹が消えてどのみち並びが変わるので、ここで並べ直す
+    sfx('fuse');
     const used = Object.keys(r.spent).map(id => ITEMS[id].name).join('・');
     toast(`${spOf(r.child).name} が生まれた!${r.isNew ? ' — 新種発見' : ''}` +
       (used ? `(${used}を使用)` : ''));
@@ -2770,8 +2823,11 @@ function viewExplore(view) {
     const team = UI.party.map(u => S.monsters.find(m => m.uid === u)).filter(Boolean);
     if (!team.length) return;
     UI.result = doExplore(team, area);
+    sfx('tap');
     if (S.watch) showStart(UI.result.cast, UI.result.ev);
     else UI.show = null;
+    // 見せないときは一手ずつ鳴らせないので、結末だけ鳴らす
+    if (!S.watch) exploreSfx(UI.result);
     save();
     render();
   });
@@ -2904,6 +2960,8 @@ function viewCup(view) {
     const team = UI.cupTeam.map(u => S.monsters.find(m => m.uid === u)).filter(Boolean);
     if (team.length !== CUP.entry) return;
     UI.cupResult = doCup(team, cup);
+    // 優勝したときだけ長い音。1回戦負けはただの負け。
+    sfx(UI.cupResult.cleared ? 'cheer' : UI.cupResult.won > 0 ? 'win' : 'lose');
     save();
     render();
   });
@@ -3011,6 +3069,7 @@ function init() {
   save();
   for (const t of document.querySelectorAll('.tab')) {
     t.addEventListener('click', () => {
+      sfx('tab');
       UI.tab = t.dataset.tab;
       UI.result = null;
       UI.cupResult = null;
@@ -3042,7 +3101,8 @@ function init() {
       const e = showStep();
       showLunge(e);
       showPaint();
-      if (UI.show.over) render();   // 終わったら結果に切り替える
+      sfx(eventSfx(e));
+      if (UI.show.over) { render(); exploreSfx(UI.result); }   // 終わったら結果に切り替える
     }, SHOW.tickMs);
     if (st && typeof st.unref === 'function') st.unref();
 
