@@ -1,7 +1,7 @@
 // =====================================================================
-// かけっこ — 単体で動く部分
+// かけっこ — 遊びのひとつめ
 //
-// このファイルはゲーム本体を一切参照しない。
+// 乗っているのは play.js の枠。ゲーム本体は一切参照しない。
 // 走者は「4つの値」だけで表す。
 //
 //   { id: 'a1', name: 'ぽち', family: 'grass', up: 'spd' }
@@ -23,6 +23,9 @@
 // =====================================================================
 (function (root) {
   'use strict';
+
+  const Play = root.Play ||
+    (typeof require !== 'undefined' ? require('./play.js') : null);
 
   const RACE = {
     tickMs: 320,
@@ -70,13 +73,7 @@
     mp:  'ふわふわと',           null: 'まっすぐに',
   };
 
-  // 表示用の名前。単体で使うときのために持っている。
-  // 呼ぶ側が自前の名前を持っているならそちらを使えばいい。
-  const LABEL = {
-    fam:  { fire:'炎', water:'水', grass:'草', rock:'岩', wind:'風', dark:'闇', light:'光' },
-    stat: { hp:'HP', mp:'MP', atk:'こうげき', def:'ぼうぎょ', int:'かしこさ', spd:'すばやさ', dex:'きようさ' },
-  };
-
+  const LABEL = Play.LABEL;
   const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
 
   // いま何区間目にいるか
@@ -84,22 +81,8 @@
     return clamp(Math.floor(x / (RACE.goal / RACE.legs)), 0, RACE.legs - 1);
   }
 
-  function shuffled(list, rnd) {
-    const a = list.slice();
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(rnd() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
-    }
-    return a;
-  }
-
-  // 区間との相性。+1が得意、-1が苦手、0が普通。系統と性格で別々に数える。
-  function fitOf(leg, family, up) {
-    if (!leg) return { plus: 0, minus: 0 };
-    const plus  = (leg.good === family ? 1 : 0) + (up && leg.ng === up ? 1 : 0);
-    const minus = (leg.bad  === family ? 1 : 0) + (up && leg.nb === up ? 1 : 0);
-    return { plus, minus };
-  }
+  // 場との相性の数え方・混ぜ方は枠のものを使う
+  const shuffled = Play.shuffled, fitOf = Play.fitOf, fitLabel = Play.fitLabel;
 
   // 走者の一覧から1レース分の状態を作る。2匹に満たなければ null。
   // opt.legs に区間の配列を渡すと、引き直さずにそれを使う(決め打ちで試すとき用)。
@@ -131,13 +114,8 @@
       let d = RACE.step[0] + rnd() * (RACE.step[1] - RACE.step[0]);
       // いる区間との相性。走るたびに区間が変わるので、毎回ちがう顔ぶれが伸びる。
       const leg = (r.legs || [])[legAt(lane.x)];
-      if (leg) {
-        if (leg.good === lane.family) d *= RACE.good;
-        else if (leg.bad === lane.family) d *= RACE.bad;
-        // 性格の効きは系統より小さい。両方そろうといちばん伸びる。
-        if (lane.up && leg.ng === lane.up) d *= RACE.natGood;
-        else if (lane.up && leg.nb === lane.up) d *= RACE.natBad;
-      }
+      // 系統と性格の効きは枠の混ぜ方に任せる。性格のほうが効きが小さい。
+      d *= Play.fitMul(leg, lane.family, lane.up, RACE);
       if (rnd() < RACE.eventP) {
         const ev = EVENTS[Math.floor(rnd() * EVENTS.length)];
         d += ev.d;
@@ -177,18 +155,32 @@
     return { note: r.note, finished };
   }
 
-  // 走者から見た区間の一言(「得意」「大の苦手」など)。無関係なら null。
-  function fitLabel(leg, family, up) {
-    const { plus, minus } = fitOf(leg, family, up);
-    if (plus > minus) return plus > 1 ? '大得意' : '得意';
-    if (minus > plus) return minus > 1 ? '大の苦手' : '苦手';
-    return null;
+  // 絵の指示。走路を横に4本引いて、そこを走者が進む。
+  function paint(r) {
+    return {
+      legend: r.legs.map(Play.condLabel),
+      goal: RACE.goal,
+      bands: r.legs.map((lg, i) => ({
+        c: lg.c, from: i * 100 / RACE.legs, to: (i + 1) * 100 / RACE.legs,
+      })),
+      lanes: r.lanes.map(l => ({
+        id: l.id, name: l.name, x: l.x,
+        tag: STYLE[l.up] || STYLE.null,
+        place: r.done.indexOf(l.id) + 1,   // 0 はまだゴールしていない
+      })),
+    };
   }
 
   const API = {
     RACE, LEGS, EVENTS, STYLE, LABEL,
-    legAt, make, step, fitOf, fitLabel, shuffled,
+    legAt, make, step, paint, fitOf, fitLabel, shuffled,
   };
+
+  Play.register({
+    id: 'race', name: 'かけっこ', note: 'ステータスは関係ない。ぜんぶ運。',
+    min: 2, max: RACE.slots, tickMs: RACE.tickMs, kind: 'lanes',
+    start: make, step, paint,
+  });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   root.Race = API;

@@ -887,6 +887,58 @@ button:focus-visible, .mon:focus-visible {
 .lane-tag .pl { color: var(--gold); font-family: var(--mono); font-weight: 700; }
 @media (prefers-reduced-motion: reduce) { .runner { transition: none; } }
 
+/* ===== 遊び ===== */
+/* 高さを決めておく。中身が入れ替わっても下のボタンが動かないように。 */
+.field-lanes { min-height: 232px; }
+.field-bar   { min-height: 188px; display: flex; flex-direction: column; gap: 8px; }
+.field-spots { min-height: 188px; display: flex; flex-direction: column; gap: 8px; }
+.leg.is-off { opacity: 0.45; }
+.leg.is-on { border-color: var(--line-hi); background: var(--panel-2); }
+
+/* 顔札。遊びの側は名前しか持たないので、姿はゲーム側で足す。 */
+.face {
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 6px 2px 2px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--ground); font-size: 11px;
+}
+.face .fn { color: var(--text); }
+.face .pl { color: var(--gold); font-family: var(--mono); font-weight: 700; font-size: 10px; }
+
+/* 綱引き */
+.tug-side {
+  display: flex; flex-wrap: wrap; gap: 4px; justify-content: center;
+  padding: 4px; border-radius: 8px;
+}
+.tug-side.is-won { background: color-mix(in srgb, var(--gold) 14%, transparent); }
+.rope {
+  position: relative; height: 18px; border-radius: 999px;
+  background: linear-gradient(90deg, var(--panel-2), var(--line), var(--panel-2));
+  border: 1px solid var(--line);
+}
+/* 真ん中の目印 */
+.rope::before {
+  content: ''; position: absolute; left: 50%; top: -3px; bottom: -3px;
+  width: 1px; background: var(--line-hi);
+}
+.knot {
+  position: absolute; top: 50%; left: var(--pos, 50%);
+  width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 3px;
+  background: var(--gold); box-shadow: 0 0 0 2px var(--ground);
+  transition: left .5s linear;
+}
+
+/* かくれんぼ */
+.seek { display: flex; align-items: center; gap: 6px; }
+.seek .lbl {
+  font-size: 10px; font-weight: 700; color: var(--ground);
+  background: var(--accent); border-radius: 4px; padding: 1px 5px;
+}
+.seek .left { color: var(--muted); font-size: 11px; margin-left: auto; }
+.hiders { display: flex; flex-wrap: wrap; gap: 4px; }
+.face.is-hidden { opacity: 0.5; border-style: dashed; }
+.face.is-found { opacity: 0.85; }
+@media (prefers-reduced-motion: reduce) { .knot { transition: none; } }
+
 /* ===== 戦いの舞台 ===== */
 .stage-wrap { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; min-height: 0; }
 .stage {

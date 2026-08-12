@@ -422,7 +422,7 @@ function makeMonster(speciesId, opts) {
     // 指定がなければ、その種族がよく持つスキルを1つ覚えて生まれる
     skills: o.skills || [pick(sp.innate)],
     nature: o.nature || randomNature(),
-    wins: o.wins || 0,          // かけっこの1着回数(遊びの記録)
+    wins: o.wins || 0,          // 遊びで1着になった回数
     // ---- 系譜 ----
     name: o.name || null,        // つけた名前。無ければ種の名前で呼ぶ
     gen: o.gen || 1,             // 何代目か。配合するたびに1つ増える
@@ -1020,8 +1020,8 @@ let UI = {
   tab: 'ranch', picks: [], area: 1, party: [], result: null, open: null,
   cup: 1, cupTeam: [], cupResult: null,
   eggFamily: null, use: {},
-  pen: {}, penNodes: null, penCaption: null, penGap: 0, penTerrain: null, penGroundKey: null, penGroundURL: null,
-  race: null, raceNodes: null, raceNote: null,
+  pen: {}, penNodes: null, penCaption: null, penGap: 0,
+  playId: 'race', play: null, playField: null, playNodes: null, playNote: null, playAcc: 0, penTerrain: null, penGroundKey: null, penGroundURL: null,
   show: null, showNodes: null, showNote: null,
   born: null, bornNew: false, // 直前に配合で生まれた子(配合タブに留まったまま結果を見せる)
   order: null,                // 表示順(uidの配列)。null なら次の描画で強さ順に並べ直す
@@ -1994,34 +1994,46 @@ function penView() {
 }
 
 // =====================================================================
-// かけっこ
+// 遊び
 //
 // 牧場の遊び。ステータスの数値は一切見ない。効くのは系統と性格の向きだけで、
-// それも走るたびに引き直す区間との相性でしかない。
+// それも遊ぶたびに引き直す「場」との相性でしかない。
 // 強い個体が勝つ仕組みにすると、遊びではなく順位表になってしまう。
+//
+// 中身は play.js の枠の上にあり(race.js / tug.js / hide.js)、どれも
+// このゲームを知らない。ここはその間をつなぐだけ —
+// 牧場のモンスターを4つの値に均し、遊び終わったら勝ち数を書き戻す。
 // =====================================================================
 
-// 走りの中身は race.js にある。あちらはこのゲームを知らない。
-// ここはその間をつなぐだけ — 牧場のモンスターを4つの値に均し、
-// 走り終わったら勝ち数を書き戻す。
 const RACE = Race.RACE, RACE_LEGS = Race.LEGS,
       RACE_EVENTS = Race.EVENTS, RACE_STYLE = Race.STYLE;
 const legAt = Race.legAt;
 
-// レースが見る値はこれだけ。レベルも遺伝も渡さない。
-function raceRunner(m) {
+// 遊びの時計。いちばん速い遊びに合わせて回し、遅い遊びは
+// 溜まった時間が長さを超えたときだけ動かす。
+const PLAY_TICK = 320;
+
+// 遊びが見る値はこれだけ。レベルも遺伝も渡さない。
+function playRunner(m) {
   return { id: m.uid, name: nameOf(m), family: spOf(m).family, up: natureOf(m).up };
 }
 
-function raceStart() {
-  UI.race = Race.make(S.monsters.map(raceRunner));
-  return UI.race;
+function playOf() { return UI.play ? Play.of(UI.play.play) : null; }
+
+function playStart(id) {
+  const def = Play.of(id || UI.playId);
+  if (!def) return null;
+  UI.play = Play.start(def.id, S.monsters.map(playRunner));
+  UI.playAcc = 0;
+  if (UI.play) sfx('whis');
+  return UI.play;
 }
 
-function raceStep() {
-  const r = UI.race;
+function playStep() {
+  const r = UI.play;
   if (!r || r.over) return;
-  const { finished } = Race.step(r);
+  const { finished, snd } = Play.step(r);
+  if (snd) sfx(snd);
   for (const f of finished) {
     if (f.place !== 1) continue;
     sfx('goal');
@@ -2031,62 +2043,176 @@ function raceStep() {
   if (r.over) save();
 }
 
-function raceView() {
-  const r = UI.race;
+// 牧場の絵札。遊びの側は名前しか持っていないので、姿はこちらで足す。
+function playFace(id, name, cls) {
+  const m = S.monsters.find(x => x.uid === id);
+  const n = el('div', 'face' + (cls ? ' ' + cls : ''));
+  if (m) n.appendChild(emblem(m, 'sm'));
+  n.appendChild(el('span', 'fn', name || (m ? nameOf(m) : '？')));
+  return n;
+}
+
+// 場の見出し(区間・足場・隠れ場に共通)
+function condChips(conds) {
+  const legend = el('div', 'legs');
+  for (const c of conds) {
+    const box = el('div', 'leg' + (c.on === false ? ' is-off' : '') + (c.on ? ' is-on' : ''));
+    box.style.setProperty('--lc', c.c);
+    box.appendChild(el('span', 'ln', c.name));
+    box.appendChild(el('span', 'lg', c.up));
+    box.appendChild(el('span', 'lb', c.down));
+    legend.appendChild(box);
+  }
+  return legend;
+}
+
+// ---- 描き方その1: 走路(かけっこ) ----
+function paintLanes(field, d) {
+  field.appendChild(condChips(d.legend));
+  const track = el('div', 'track');
+  track.style.setProperty('--legbg',
+    d.bands.map(b => `${b.c}22 ${b.from}%, ${b.c}22 ${b.to}%`).join(', '));
+  UI.playNodes = {};
+  for (const lane of d.lanes) {
+    const row = el('div', 'lane');
+    const n = el('div', 'runner');
+    const m = S.monsters.find(x => x.uid === lane.id);
+    if (m) n.appendChild(emblem(m, 'sm'));
+    n.style.setProperty('--rx', lane.x + '%');
+    if (lane.place) n.classList.add('is-done');
+    UI.playNodes[lane.id] = n;
+    row.appendChild(n);
+    const tag = el('div', 'lane-tag');
+    tag.appendChild(el('span', 'nm', lane.name));
+    tag.appendChild(el('span', 'st', lane.tag));
+    if (lane.place) tag.appendChild(el('span', 'pl', `${lane.place}着`));
+    row.appendChild(tag);
+    track.appendChild(row);
+  }
+  field.appendChild(track);
+}
+
+function updateLanes(d) {
+  for (const lane of d.lanes) {
+    const n = UI.playNodes[lane.id];
+    if (!n) continue;
+    n.style.setProperty('--rx', lane.x + '%');
+    if (lane.place) n.classList.add('is-done');
+  }
+}
+
+// ---- 描き方その2: 綱(綱引き) ----
+function paintBar(field, d) {
+  field.appendChild(condChips(d.conds));
+  UI.playNodes = { legs: field.lastChild, sides: [] };
+  d.sides.forEach((side, i) => {
+    const row = el('div', 'tug-side' + (side.won ? ' is-won' : ''));
+    side.ids.forEach((id, k) => row.appendChild(playFace(id, side.names[k])));
+    UI.playNodes.sides[i] = row;
+    field.appendChild(row);
+    if (i === 0) {
+      const rope = el('div', 'rope');
+      const knot = el('i', 'knot');
+      knot.style.setProperty('--pos', d.pos + '%');
+      rope.appendChild(knot);
+      UI.playNodes.knot = knot;
+      field.appendChild(rope);
+    }
+  });
+}
+
+function updateBar(d) {
+  if (UI.playNodes.knot) UI.playNodes.knot.style.setProperty('--pos', d.pos + '%');
+  const legs = UI.playNodes.legs;
+  if (legs) d.conds.forEach((c, i) => {
+    const n = legs.childNodes[i];
+    if (n) { n.classList.toggle('is-on', !!c.on); n.classList.toggle('is-off', !c.on); }
+  });
+  d.sides.forEach((side, i) => {
+    const row = UI.playNodes.sides[i];
+    if (row) row.classList.toggle('is-won', !!side.won);
+  });
+}
+
+// ---- 描き方その3: 隠れ場(かくれんぼ) ----
+function paintSpots(field, d) {
+  field.appendChild(condChips(d.spots.map(s => ({ name: s.name, c: s.c, on: s.on, up: '', down: '' }))));
+  const oni = el('div', 'seek');
+  oni.appendChild(el('span', 'lbl', '鬼'));
+  oni.appendChild(playFace(d.seeker.id, d.seeker.name));
+  oni.appendChild(el('span', 'left', `かくれている ${d.left}匹`));
+  field.appendChild(oni);
+  const row = el('div', 'hiders');
+  for (const h of d.hiders) {
+    const f = playFace(h.id, h.name, h.found ? 'is-found' : 'is-hidden');
+    if (h.place) f.appendChild(el('span', 'pl', `${h.place}着`));
+    row.appendChild(f);
+  }
+  field.appendChild(row);
+}
+
+// 隠れ場は毎歩そこそこ変わるので、組み立て直す(0.8秒に1回なので軽い)
+function updateSpots(d, field) {
+  field.textContent = '';
+  paintSpots(field, d);
+}
+
+const PAINT = {
+  lanes: { build: paintLanes, update: (d) => updateLanes(d) },
+  bar:   { build: paintBar,   update: (d) => updateBar(d) },
+  spots: { build: paintSpots, update: (d, f) => updateSpots(d, f) },
+};
+
+// 1歩ぶん進めて、画面だけ合わせる。描き直しはしない。
+function playRepaint() {
+  const r = UI.play;
+  if (!r || !UI.playField) return;
+  const d = Play.paint(r);
+  const p = PAINT[d.kind];
+  if (p) p.update(d, UI.playField);
+  if (UI.playNote) UI.playNote.textContent = r.note;
+}
+
+function playView() {
+  const r = UI.play;
+  const def = Play.of(UI.playId) || Play.list()[0];
+  UI.playId = def.id;
   const panel = el('div', 'panel');
   const head = el('div', 'head');
-  head.appendChild(el('h2', null, 'かけっこ'));
-  UI.raceNote = el('span', 'note', r ? r.note : 'ステータスは関係ない。ぜんぶ運。');
-  head.appendChild(UI.raceNote);
+  head.appendChild(el('h2', null, '遊び'));
+  UI.playNote = el('span', 'note', r ? r.note : def.note);
+  head.appendChild(UI.playNote);
   panel.appendChild(head);
 
-  if (r) {
-    // どの区間で誰が伸びるか
-    const legend = el('div', 'legs');
-    r.legs.forEach((lg, i) => {
-      const c = el('div', 'leg');
-      c.style.setProperty('--lc', lg.c);
-      const lab = (k) => STATS.find(st => st.key === k).label;
-      c.appendChild(el('span', 'ln', lg.name));
-      c.appendChild(el('span', 'lg', FAMILIES[lg.good].name + '↑ ' + lab(lg.ng) + '↑'));
-      c.appendChild(el('span', 'lb', FAMILIES[lg.bad].name + '↓ ' + lab(lg.nb) + '↓'));
-      legend.appendChild(c);
-    });
-    panel.appendChild(legend);
-
-    const track = el('div', 'track');
-    track.style.setProperty('--legbg',
-      r.legs.map((lg, i) => {
-        const a = i * 100 / RACE.legs, b = (i + 1) * 100 / RACE.legs;
-        return `${lg.c}22 ${a}%, ${lg.c}22 ${b}%`;
-      }).join(', '));
-    UI.raceNodes = {};
-    r.lanes.forEach((lane, i) => {
-      // 走者の名前や系統はレース側が持っている。絵だけこちらから足す。
-      const m = S.monsters.find(x => x.uid === lane.id);
-      const row = el('div', 'lane');
-      const n = el('div', 'runner');
-      if (m) n.appendChild(emblem(m, 'sm'));
-      n.style.setProperty('--rx', lane.x + '%');
-      const place = r.done.indexOf(lane.id);
-      if (place >= 0) n.classList.add('is-done');
-      UI.raceNodes[lane.id] = n;
-      row.appendChild(n);
-      const tag = el('div', 'lane-tag');
-      tag.appendChild(el('span', 'nm', lane.name || '？'));
-      tag.appendChild(el('span', 'st', RACE_STYLE[lane.up] || RACE_STYLE.null));
-      if (place >= 0) tag.appendChild(el('span', 'pl', `${place + 1}着`));
-      row.appendChild(tag);
-      track.appendChild(row);
-    });
-    panel.appendChild(track);
+  // 何をして遊ばせるか。遊んでいる最中は選び替えられない。
+  const chips = el('div', 'chips');
+  for (const p of Play.list()) {
+    const b = el('button', 'chip' + (p.id === UI.playId ? ' is-on' : ''));
+    b.appendChild(el('span', null, p.name));
+    b.appendChild(el('span', 'r', `${p.min}匹〜`));
+    if (S.monsters.length < p.min) b.disabled = true;
+    else if (r && !r.over) b.disabled = true;
+    b.addEventListener('click', () => { sfx('pick'); UI.playId = p.id; UI.play = null; render(); });
+    chips.appendChild(b);
   }
+  panel.appendChild(chips);
 
+  const field = el('div', 'field-' + def.kind);
+  UI.playField = field;
+  UI.playNodes = {};
+  if (r) {
+    const d = Play.paint(r);
+    const paint = PAINT[d.kind];
+    if (paint) paint.build(field, d);
+  }
+  panel.appendChild(field);
+
+  const enough = S.monsters.length >= def.min;
   const go = el('button', 'btn ghost',
-    !r ? 'かけっこをさせる' : r.over ? 'もう一度' : '走っている…');
-  if (S.monsters.length < 2) { go.disabled = true; go.textContent = '2匹いないと走れない'; }
-  else if (r && !r.over) go.disabled = true;
-  go.addEventListener('click', () => { if (raceStart()) { sfx('whis'); render(); } });
+    !enough ? `${def.min}匹いないと遊べない`
+      : !r ? `${def.name}をさせる` : r.over ? 'もう一度' : '遊んでいる…');
+  if (!enough || (r && !r.over)) go.disabled = true;
+  go.addEventListener('click', () => { if (playStart()) render(); });
   panel.appendChild(go);
   return panel;
 }
@@ -2318,7 +2444,7 @@ function viewRanch(view) {
   view.appendChild(snd);
 
   view.appendChild(penView());
-  view.appendChild(raceView());
+  view.appendChild(playView());
 
   if (rosterFull()) {
     view.appendChild(el('p', 'hint',
@@ -2345,7 +2471,7 @@ function viewRanch(view) {
     d.appendChild(el('p', 'lore', spOf(m).flavor));
     {
       const nat = natureOf(m);
-      if (m.wins) d.appendChild(el('p', 'hint', `かけっこ ${m.wins} 勝。`));
+      if (m.wins) d.appendChild(el('p', 'hint', `遊びで ${m.wins} 勝。`));
       d.appendChild(el('p', 'hint',
         `性格は〈${nat.name}〉。` + (nat.up
           ? `${STATS.find(s => s.key === nat.up).label}が ${Math.round(NATURE.swing * 100)}% 高く、` +
@@ -3105,18 +3231,16 @@ function init() {
   // にわを動かす。描き直しではなく位置だけ変えるので、操作の邪魔をしない。
   if (typeof setInterval !== 'undefined') {
     const rt = setInterval(() => {
-      if (UI.tab !== 'ranch' || !UI.race || UI.race.over || !UI.raceNodes) return;
-      const wasOver = UI.race.over;
-      raceStep();
-      for (const lane of UI.race.lanes) {
-        const n = UI.raceNodes[lane.id];
-        if (!n) continue;
-        n.style.setProperty('--rx', lane.x + '%');
-        if (UI.race.done.includes(lane.id)) n.classList.add('is-done');
-      }
-      if (UI.raceNote) UI.raceNote.textContent = UI.race.note;
-      if (UI.race.over !== wasOver) render();   // 終わったら順位を出すため描き直す
-    }, RACE.tickMs);
+      if (UI.tab !== 'ranch' || !UI.play || UI.play.over || !UI.playField) return;
+      // 遊びごとに1歩の長さが違う。溜まった時間が長さを超えたら進める。
+      const def = playOf();
+      UI.playAcc = (UI.playAcc || 0) + PLAY_TICK;
+      if (!def || UI.playAcc < def.tickMs) return;
+      UI.playAcc = 0;
+      playStep();
+      playRepaint();
+      if (UI.play.over) render();   // 終わったら順位を出すため描き直す
+    }, PLAY_TICK);
     if (rt && typeof rt.unref === 'function') rt.unref();
 
     const st = setInterval(() => {

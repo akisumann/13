@@ -70,7 +70,7 @@ button:disabled { opacity: .45; cursor: default; }
 <body>
 <main>
   <h1>かけっこ</h1>
-  <p class="sub">race.js だけで動いている見本。走者はこの下の RUNNERS を書き換えれば入れ替わる。</p>
+  <p class="sub">枠(play.js)と race.js だけで動いている見本。走者はこの下の RUNNERS を書き換えれば入れ替わる。</p>
   <div class="panel">
     <div class="head"><h2>走路</h2><span class="note" id="note">よーい</span></div>
     <div class="legs" id="legs"></div>
@@ -80,9 +80,10 @@ button:disabled { opacity: .45; cursor: default; }
   </div>
 </main>
 
+<script src="play.js"></script>
 <script src="race.js"></script>
 <script>
-// レースが知っているのはこの4つだけ。強さの数値はどこにも無い。
+// 遊びが知っているのはこの4つだけ。強さの数値はどこにも無い。
 const RUNNERS = [
   { id: 'a', name: 'ヒノコ',   family: 'fire',  up: 'atk' },
   { id: 'b', name: 'シズク',   family: 'water', up: 'mp'  },
