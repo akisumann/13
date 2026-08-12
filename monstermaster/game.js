@@ -319,50 +319,50 @@ const TERRAIN_MAX = 4;
 
 const TERRAINS = {
   grassland: { name: '草はら',   price: 600,  likes: 'grass', c: '#2f6b3c', c2: '#3f8a4c', top: '#5fd07a',
-    snd: 'rustle', acts: ['で 寝転がった', 'の草を食んでいる', 'に 潜りこんだ'] },
+    use: 'peck', snd: 'rustle', acts: ['で 寝転がった', 'の草を食んでいる', 'に 潜りこんだ'] },
   pond:      { name: '水たまり', price: 850,  likes: 'water', c: '#1d4a72', c2: '#2a6396', top: '#4aa8ff',
-    snd: 'splash', acts: ['に 浸かっている', 'の水を跳ねさせた', 'を のぞきこんだ'], wet: true },
+    use: 'sway', snd: 'splash', acts: ['に 浸かっている', 'の水を跳ねさせた', 'を のぞきこんだ'], wet: true },
   rockface:  { name: '岩肌',     price: 1000, likes: 'rock',  c: '#4a4437', c2: '#5e5644', top: '#d0a24a',
-    snd: 'pebble', acts: ['に よじ登った', 'の上で日を浴びている', 'を 削っている'], high: true },
+    use: 'climb', snd: 'pebble', acts: ['に よじ登った', 'の上で日を浴びている', 'を 削っている'], high: true },
   ember:     { name: '焚き跡',   price: 1200, likes: 'fire',  c: '#4a2a24', c2: '#63372c', top: '#ff6b4a',
-    snd: 'crackl', acts: ['の灰をかき回した', 'で 暖まっている', 'に 火を入れ直した'] },
+    use: 'doze', snd: 'crackl', acts: ['の灰をかき回した', 'で 暖まっている', 'に 火を入れ直した'] },
   ledge:     { name: '段差',     price: 1500, likes: 'wind',  c: '#3a4256', c2: '#4a546e', top: '#7ee0d0',
-    snd: 'hop', acts: ['から 飛び降りた', 'の上に立っている', 'を 何度も跳んでいる'], high: true },
+    use: 'hop', snd: 'hop', acts: ['から 飛び降りた', 'の上に立っている', 'を 何度も跳んでいる'], high: true },
   cave:      { name: '洞窟',     price: 2000, likes: 'dark',  c: '#161a26', c2: '#1e2432', top: '#a76bff',
-    snd: 'drip', acts: ['に 入っていった', 'の奥から見ている', 'の入口で丸くなった'], hide: true },
+    use: 'doze', snd: 'drip', acts: ['に 入っていった', 'の奥から見ている', 'の入口で丸くなった'], hide: true },
 };
 
 // 器具。7×5のドット絵と、寄ってくる系統・することが決まっている。
 const FIXTURES = {
   rug:    { name: '敷物',       price: 300,  likes: null,
-            snd: 'rustle', acts: ['の上で寝そべった', 'で 丸くなった', 'の端をくわえている'],
+            use: 'doze', snd: 'rustle', acts: ['の上で寝そべった', 'で 丸くなった', 'の端をくわえている'],
             art: ['.......', '.#####.', '.#ooo#.', '.#####.', '.......'], c: '#b06a5a', a: '#e0a08a' },
   ball:   { name: 'まり',       price: 380,  likes: 'wind',
-            snd: 'toy', acts: ['を 転がしている', 'を 追いかけた', 'に 飛びついた'],
+            use: 'hop', snd: 'toy', acts: ['を 転がしている', 'を 追いかけた', 'に 飛びついた'],
             art: ['..###..', '.#ooo#.', '#oo#oo#', '.#ooo#.', '..###..'], c: '#e8c05a', a: '#fff3c4' },
   feeder: { name: 'えさ箱',     price: 450,  likes: null,
-            snd: 'chew', acts: ['を つついている', 'で 食べている', 'に 顔を突っ込んだ'],
+            use: 'peck', snd: 'chew', acts: ['を つついている', 'で 食べている', 'に 顔を突っ込んだ'],
             art: ['.......', '#.....#', '#ooooo#', '#######', '.#...#.'], c: '#8a6a4a', a: '#d8b06a' },
   trough: { name: '水おけ',     price: 520,  likes: 'water',
-            snd: 'splash', acts: ['で 水をのんでいる', 'に 足をつけた', 'を のぞきこんでいる'],
+            use: 'peck', snd: 'splash', acts: ['で 水をのんでいる', 'に 足をつけた', 'を のぞきこんでいる'],
             art: ['.......', '#.....#', '#ooooo#', '#ooooo#', '.#####.'], c: '#6a7a9a', a: '#4aa8ff' },
   log:    { name: '丸太',       price: 560,  likes: 'grass',
-            snd: 'wood', acts: ['に よじ登った', 'の上で寝ている', 'を かじっている'],
+            use: 'climb', snd: 'wood', acts: ['に よじ登った', 'の上で寝ている', 'を かじっている'],
             art: ['.......', '#######', '#oo#oo#', '#######', '.......'], c: '#7a5a3a', a: '#a88050' },
   bush:   { name: '茂み',       price: 620,  likes: 'dark',
-            snd: 'rustle', acts: ['に 隠れた', 'から 顔だけ出している', 'の中で丸くなった'],
+            use: 'doze', snd: 'rustle', acts: ['に 隠れた', 'から 顔だけ出している', 'の中で丸くなった'],
             art: ['..o.o..', '.ooooo.', 'ooooooo', '.ooooo.', '..#.#..'], c: '#3a5a3a', a: '#5fd07a' },
   perch:  { name: 'とまり木',   price: 700,  likes: 'wind',
-            snd: 'wood', acts: ['に とまった', 'から 見下ろしている', 'の上で羽を伸ばした'],
+            use: 'climb', snd: 'wood', acts: ['に とまった', 'から 見下ろしている', 'の上で羽を伸ばした'],
             art: ['#######', '...#...', '...#...', '..###..', '.#####.'], c: '#8a7a5a', a: '#c8b070' },
   hearth: { name: 'あたたか石', price: 820,  likes: 'fire',
-            snd: 'crackl', acts: ['の上で丸くなった', 'で 温まっている', 'に 寄りかかった'],
+            use: 'doze', snd: 'crackl', acts: ['の上で丸くなった', 'で 温まっている', 'に 寄りかかった'],
             art: ['..###..', '.#ooo#.', '#ooooo#', '#ooooo#', '#######'], c: '#8a4a3a', a: '#ff6b4a' },
   cairn:  { name: '積み石',     price: 900,  likes: 'rock',
-            snd: 'pebble', acts: ['を 崩した', 'を 積み直している', 'の影に入った'],
+            use: 'peck', snd: 'pebble', acts: ['を 崩した', 'を 積み直している', 'の影に入った'],
             art: ['..###..', '.#####.', '..###..', '.#####.', '#######'], c: '#7a7a86', a: '#d0a24a' },
   font:   { name: '灯明',       price: 1100, likes: 'light',
-            snd: 'chime', acts: ['の火を見ている', 'に 照らされている', 'のまわりを回った'],
+            use: 'sway', snd: 'chime', acts: ['の火を見ている', 'に 照らされている', 'のまわりを回った'],
             art: ['...o...', '..ooo..', '...#...', '..###..', '.#####.'], c: '#9a8a6a', a: '#ffd95c' },
 };
 const FIXTURE_MAX = 6;
@@ -1651,6 +1651,7 @@ const PEN = {
                             // そのまま「頭の上が埋まっている率」になるので低く。
   emoNap: 0.10,             // 寝ているあいだに寝息が出る割合。出しっぱなしに
                             // すると、寝ている子の頭の上が常に埋まってうるさい。
+  fidget: 2,                // 器具を使っているあいだの、その場での揺れ幅(%)
   moodBias: 3,              // 性格に合う気分の出やすさ(何倍か)
 };
 
@@ -1670,6 +1671,11 @@ const MOODS = [
     move: 0.75, nap: 1.3 },
 ];
 const MOOD_BY_ID = MOODS.reduce((o, m) => (o[m.id] = m, o), {});
+
+// 器具や地形を使っているときの動き。器具ごとにどれかを割り当ててある。
+// 動きそのものは CSS のアニメーションで、ここは名前を渡すだけ。
+// 着いたら止まる、では「使っている」ように見えないので。
+const USE_MOTIONS = ['hop', 'peck', 'sway', 'climb', 'doze'];
 
 // 気分をひとつ引く。性格に合うものは出やすいが、どれも必ず出る目がある。
 function drawMood(m) {
@@ -1854,7 +1860,7 @@ function penSpot(uid) {
     UI.pen[uid] = {
       x: ri(PEN.x[0], PEN.x[1]), y: ri(PEN.y[0], PEN.y[1]),
       flip: Math.random() < 0.5, nap: false,
-      mood: null, moodT: 0, emo: null, emoT: 0,
+      mood: null, moodT: 0, emo: null, emoT: 0, use: null,
     };
   }
   return UI.pen[uid];
@@ -1918,6 +1924,10 @@ function penStep() {
     // 好きな器具の前が渋滞して見ていて面白くない。
     if (p.bored > 0) { p.bored--; drop(); }
 
+    // 用のある先に着いているあいだは「使っている」。寝たらやめる。
+    p.use = (!p.nap && p.want && targets[p.want] && isNear(p, targets[p.want]))
+      ? (FIXTURES[p.want] || TERRAINS[p.want]).use : null;
+
     if (p.want) {
       if (!targets[p.want]) drop();
       else if (isNear(p, targets[p.want])) {
@@ -1957,13 +1967,14 @@ function penStep() {
       }
     }
 
-    if (!p.nap && Math.random() >= st.still) {
+    // 使っている最中は、腰が重い子でもその場で少し動く。
+    if (!p.nap && (p.use || Math.random() >= st.still)) {
       let dx, dy;
       if (p.want || friend) {
         const t = friend || targets[p.want];
         dx = clamp(Math.round(t.x - p.x), -st.step, st.step);
         dy = clamp(Math.round(t.y - p.y), -st.step, st.step);
-        if (!dx && !dy) { dx = ri(-2, 2); dy = ri(-2, 2); }
+        if (!dx && !dy) { dx = ri(-PEN.fidget, PEN.fidget); dy = ri(-PEN.fidget, PEN.fidget); }
       } else {
         dx = ri(-st.step, st.step);
         dy = ri(-Math.round(st.step * 0.6), Math.round(st.step * 0.6));
@@ -2049,6 +2060,9 @@ function applySpot(node, p, uid) {
   node.style.setProperty('--py', p.y + '%');
   node.style.setProperty('--flip', p.flip ? '-1' : '1');
   node.classList.toggle('is-nap', !!p.nap);
+  // 使っている動き。器具ごとに違う揺れ方をする。
+  node.classList.toggle('is-using', !!p.use);
+  for (const k of USE_MOTIONS) node.classList.toggle('use-' + k, p.use === k);
   // 頭の上の気持ち。中身が変わったときだけ書き換える(毎歩いじると跳ね続ける)。
   const e = UI.penEmo && UI.penEmo[uid];
   if (!e) return;

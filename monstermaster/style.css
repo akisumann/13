@@ -854,6 +854,45 @@ button:focus-visible, .mon:focus-visible {
 .pen-mon.is-nap { transform: translate(-50%, calc(-50% + var(--lift, 0px))) scaleX(var(--flip, 1)) scaleY(0.82); }
 .pen-mon.on-hide { opacity: 0.45; }
 
+/* 器具や地形を使っているときの動き。
+   親(.pen-mon)は位置と左右反転で transform を使いきっているので、
+   中の絵だけを動かす。着いたら止まる、では使っているように見えない。 */
+.pen-mon.is-using .emblem { animation: pen-hop 1.1s ease-in-out infinite; }
+.pen-mon.use-hop   .emblem { animation: pen-hop   0.7s ease-in-out infinite; }
+.pen-mon.use-peck  .emblem { animation: pen-peck  0.9s ease-in-out infinite; }
+.pen-mon.use-sway  .emblem { animation: pen-sway  2.2s ease-in-out infinite; }
+.pen-mon.use-climb .emblem { animation: pen-climb 1.8s ease-in-out infinite; }
+.pen-mon.use-doze  .emblem { animation: pen-doze  2.6s ease-in-out infinite; }
+
+/* 弾む */
+@keyframes pen-hop {
+  0%, 100% { transform: translateY(0) scaleY(1); }
+  30%      { transform: translateY(-5px) scaleY(1.06); }
+  55%      { transform: translateY(0) scaleY(0.92); }
+}
+/* つつく・食べる */
+@keyframes pen-peck {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  40%      { transform: translateY(2px) rotate(12deg); }
+  70%      { transform: translateY(0) rotate(2deg); }
+}
+/* ゆらゆら */
+@keyframes pen-sway {
+  0%, 100% { transform: rotate(-5deg); }
+  50%      { transform: rotate(5deg); }
+}
+/* よじ登る */
+@keyframes pen-climb {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  35%      { transform: translateY(-3px) rotate(-7deg); }
+  70%      { transform: translateY(-1px) rotate(5deg); }
+}
+/* 息をしている */
+@keyframes pen-doze {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.07); }
+}
+
 /* 頭の上の気持ち。出るときだけふわっと浮く。 */
 .emo {
   position: absolute;
@@ -878,7 +917,10 @@ button:focus-visible, .mon:focus-visible {
 /* 仲良くしているのは遠目にも分かるように色をつける */
 .emo.is-love { color: #ff8fb0; border-color: #ff8fb0; }
 .emo.is-nap  { color: var(--muted); }
-@media (prefers-reduced-motion: reduce) { .emo { transition: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .emo { transition: none; }
+  .pen-mon .emblem { animation: none !important; }
+}
 .pen-mon.on-wet .emblem { box-shadow: 0 3px 0 -1px color-mix(in srgb, #4aa8ff 55%, transparent); }
 
 /* ===== かけっこ ===== */
